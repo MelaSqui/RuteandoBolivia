@@ -26,3 +26,18 @@ pnpm-debug.log*
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Flutter y Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+ruteando_bolivia.iml
+*.iml
+*.ipr
+*.iws
+.metadata
+

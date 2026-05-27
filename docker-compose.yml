@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  scraper:
+    build: ./abc-scraper
+    container_name: ruteando-scraper
+    restart: unless-stopped
+    env_file:
+      - ./abc-scraper/.env
