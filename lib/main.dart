@@ -8,11 +8,10 @@ import 'theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // TODO: Reemplazar con credenciales reales de Supabase
-  // await Supabase.initialize(
-  //   url: 'YOUR_SUPABASE_URL',
-  //   anonKey: 'YOUR_SUPABASE_ANON_KEY',
-  // );
+  await Supabase.initialize(
+    url: 'https://kuqwxsjfidashrtwxslx.supabase.co',
+    anonKey: 'sb_publishable_WrMRiFSODTPFYPuuQzIFzA_a7FUebpV',
+  );
 
   runApp(const RuteandoBoliviaApp());
 }
