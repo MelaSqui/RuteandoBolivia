@@ -1,0 +1,27 @@
+{
+  "name": "ruteando-bolivia-scraper",
+  "version": "1.0.0",
+  "description": "Scraper periódico de datos de transitabilidad de la Red Vial Fundamental de Bolivia",
+  "main": "src/index.js",
+  "scripts": {
+    "start:scraper": "node src/index.js",
+    "start:api": "node src/api/server.js",
+    "dev:scraper": "node --watch src/index.js",
+    "dev:api": "node --watch src/api/server.js",
+    "scrape:once": "node -e \"require('./src/scraper/data-extractor.js').scrape().then(r => console.log(JSON.stringify(r).substring(0, 100) + '...')).catch(console.error)\""
+  },
+  "keywords": [
+    "bolivia",
+    "transitabilidad",
+    "scraper"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
+    "cors": "^2.8.6",
+    "dotenv": "^16.0.0",
+    "express": "^5.2.1",
+    "pino": "^9.0.0"
+  }
+}
