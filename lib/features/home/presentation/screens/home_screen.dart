@@ -21,13 +21,13 @@ class _HomeScreenState extends State<HomeScreen> {
       DiscoveryScreen(
         onNavigateToMap: () {
           setState(() {
-            _currentIndex = 1;
+            _currentIndex = 3; // Redirige a la pestaña de la Red Vial / Rutas (donde ahora está el Mapa)
           });
         },
       ),
-      const MapaTransitabilidad(),
       const AlertsScreen(),
       const ReportsScreen(),
+      const MapaTransitabilidad(), // El mapa real interactivo ahora está en la pestaña "Rutas"
       const ProfileScreen(),
     ];
 
@@ -37,7 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Asegura que se muestren las opciones fijas
+        type: BottomNavigationBarType.fixed, // Asegura que se muestren las 5 opciones fijas
         currentIndex: _currentIndex,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey,
@@ -47,10 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         },
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.explore_rounded),
-            label: 'Inicio',
-          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.map_rounded),
             label: 'Mapa',
@@ -62,6 +58,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.add_circle_outline_rounded),
             label: 'Reportar',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.directions_rounded),
+            label: 'Rutas',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_rounded),
