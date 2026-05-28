@@ -62,8 +62,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/patterns/roads_dark.svg
-    - assets/patterns/roads_light.svg
+    - assets/patterns/
 
   # To add fonts to your application, add a fonts section here.
   # For example:
