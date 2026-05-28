@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
 import 'register_screen.dart';
 
@@ -108,6 +110,19 @@ class _LoginScreenState extends State<LoginScreen>
                         const Color(0xFFF0FDF4),
                         const Color(0xFFF8FAFC),
                       ],
+              ),
+            ),
+          ),
+
+          // ─── Fondo de mapa de imagen estática ───
+          Positioned.fill(
+            child: Opacity(
+              opacity: isDark ? 0.75 : 0.55,
+              child: Image.asset(
+                isDark
+                    ? 'assets/patterns/oscuro.png'
+                    : 'assets/patterns/claro.png',
+                fit: BoxFit.cover,
               ),
             ),
           ),

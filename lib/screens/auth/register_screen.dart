@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
 
 class RegisterScreen extends StatefulWidget {
@@ -131,6 +133,19 @@ class _RegisterScreenState extends State<RegisterScreen>
                         const Color(0xFFE0F2FE),
                         const Color(0xFFF8FAFC),
                       ],
+              ),
+            ),
+          ),
+
+          // ─── Fondo de mapa de imagen estática ───
+          Positioned.fill(
+            child: Opacity(
+              opacity: isDark ? 0.75 : 0.55,
+              child: Image.asset(
+                isDark
+                    ? 'assets/patterns/oscuro.png'
+                    : 'assets/patterns/claro.png',
+                fit: BoxFit.cover,
               ),
             ),
           ),
