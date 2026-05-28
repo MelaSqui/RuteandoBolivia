@@ -41,6 +41,12 @@ const scrapeAbcData = async () => {
                                     .from('puntos_abc')
                                     .upsert({
                                         id: p.id || p.properties?.id,
+                                        tramo: p.properties?.tramo || null,
+                                        descripcion: p.properties?.descripcion || null,
+                                        estado: p.properties?.estado || null,
+                                        causa: p.properties?.causa || p.properties?.motivo || null,
+                                        latitud: p.geometry?.coordinates ? p.geometry.coordinates[1] : (p.latitud || null),
+                                        longitud: p.geometry?.coordinates ? p.geometry.coordinates[0] : (p.longitud || null),
                                         datos_brutos: p // Guardamos todo el JSON por ahora
                                     });
                                 if (error) console.error('[Scraper ABC] Error insertando punto:', error.message);
