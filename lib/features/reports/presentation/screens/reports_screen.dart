@@ -270,30 +270,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  height: 56, // Altura incrementada de 48 a 56 para evitar recortes en escalados de fuente
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _categories.length,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(vertical: 4), // Padding seguro para sombras y bordes
-                    itemBuilder: (context, index) {
-                      final category = _categories[index];
-                      final isSelected = _selectedCategoryIndex == index;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 10),
-                        child: CategoryChip(
-                          category: category,
-                          isSelected: isSelected,
-                          onTap: () {
-                            setState(() {
-                              _selectedCategoryIndex = index;
-                            });
-                          },
-                        ),
-                      );
-                    },
-                  ),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: List.generate(_categories.length, (index) {
+                    final category = _categories[index];
+                    final isSelected = _selectedCategoryIndex == index;
+                    return CategoryChip(
+                      category: category,
+                      isSelected: isSelected,
+                      onTap: () {
+                        setState(() {
+                          _selectedCategoryIndex = index;
+                        });
+                      },
+                    );
+                  }),
                 ),
                 const SizedBox(height: 24),
 
