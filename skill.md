@@ -235,3 +235,26 @@ assets/
 - Esta hoja de estilo está pensada para ser una guía de tokens y no un estilo fijo final.
 - Ajusta los valores según la experiencia de usuario en dispositivos móviles y la visibilidad del mapa.
 - El contraste debe mantenerse alto en modo oscuro para lectura fácil mientras el diseño conservador en modo claro debe ser neutro y limpio.
+
+## 10. Estructura de la Arquitectura (Feature-First)
+
+El frontend de la aplicación en Flutter debe organizarse bajo una arquitectura Feature-First (orientada a características). Las reglas de carpetas y capas son las siguientes:
+
+### Organización de directorios en lib/
+
+* `lib/features/`: Directorio raíz de los módulos de la aplicación.
+  * `lib/features/[nombre_feature]/`: Cada característica independiente (ej. auth, map, reports).
+    * `presentation/`: Contiene la interfaz de usuario.
+      * `screens/`: Pantallas completas de la funcionalidad.
+      * `widgets/`: Componentes específicos de la característica.
+      * `controllers/`: Manejadores de estado y lógica de la UI.
+    * `domain/`: Modelos y entidades de datos puras de la feature.
+    * `data/`: Orígenes de datos, clientes de red (Supabase/Http) y repositorios.
+* `lib/theme/`: Estilos globales y constantes de diseño.
+* `lib/main.dart`: Punto de entrada de la aplicación y enrutamiento inicial.
+
+### Lineamientos para agentes y desarrolladores
+
+1. **Autocontención:** Todo archivo relacionado a una funcionalidad (pantallas, lógica y llamadas a API) debe residir dentro de su carpeta correspondiente en `lib/features/[nombre_feature]/`.
+2. **Dependencias:** Los módulos no deben tener dependencias circulares. Si dos módulos requieren compartir el mismo widget o modelo, este debe promoverse a un directorio común `lib/core/` (por ejemplo, `lib/core/widgets/` o `lib/core/models/`).
+3. **Mantenibilidad:** No colocar lógica de negocio directamente en los widgets de la vista. Utilizar controladores en la capa de presentación para desacoplar el estado de la UI.
