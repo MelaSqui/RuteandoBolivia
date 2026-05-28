@@ -8,8 +8,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'https://kuqwxsjfidashrtwxslx.supabase.co',
-    anonKey: 'sb_publishable_WrMRiFSODTPFYPuuQzIFzA_a7FUebpV',
+    url: const String.fromEnvironment('SUPABASE_URL'),
+    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
 
   runApp(const RuteandoBoliviaApp());
@@ -26,7 +26,7 @@ class RuteandoBoliviaApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const HomeScreen(),
+      home: const AuthGate(),
     );
   }
 }
@@ -145,3 +145,4 @@ class _SplashScreen extends StatelessWidget {
     );
   }
 }
+
