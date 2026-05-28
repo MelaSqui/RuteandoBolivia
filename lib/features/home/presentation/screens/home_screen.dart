@@ -15,20 +15,20 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    MapaTransitabilidad(),
-    AlertsScreen(),
-    ReportsScreen(),
-    RoutesScreen(),
-    ProfileScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    const screens = [
+      MapaTransitabilidad(),
+      AlertsScreen(),
+      ReportsScreen(),
+      RoutesScreen(),
+      ProfileScreen(),
+    ];
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed, // Asegura que se muestren las 5 opciones fijas
