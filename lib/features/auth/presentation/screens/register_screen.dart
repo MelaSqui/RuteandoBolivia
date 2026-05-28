@@ -527,6 +527,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                                                     CircularProgressIndicator(
                                                   strokeWidth: 2.5,
                                                   color: Colors.white,
+                                                  valueColor:
+                                                      AlwaysStoppedAnimation<
+                                                          Color>(Colors.white),
                                                 ),
                                               )
                                             : const Text(
