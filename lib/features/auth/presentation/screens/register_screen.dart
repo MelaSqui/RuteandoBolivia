@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
+
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
