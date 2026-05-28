@@ -7,9 +7,20 @@ import 'features/home/presentation/screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+  if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+    throw Exception(
+      'Faltan las variables de entorno de Supabase.\n\n'
+      'Asegúrate de ejecutar la aplicación con el archivo de configuración:\n'
+      'flutter run -d chrome --dart-define-from-file=backend/.env'
+    );
+  }
+
   await Supabase.initialize(
-    url: const String.fromEnvironment('SUPABASE_URL'),
-    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   runApp(const RuteandoBoliviaApp());

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:ruteando_bolivia/features/map/presentation/screens/map_screen.dart';
 import 'package:ruteando_bolivia/features/alerts/presentation/screens/alerts_screen.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/screens/reports_screen.dart';
-import 'package:ruteando_bolivia/features/routes/presentation/screens/routes_screen.dart';
 import 'package:ruteando_bolivia/features/profile/presentation/screens/profile_screen.dart';
+import 'package:ruteando_bolivia/features/discovery/presentation/screens/discovery_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,10 +18,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     const screens = [
+      DiscoveryScreen(),
       MapaTransitabilidad(),
       AlertsScreen(),
       ReportsScreen(),
-      RoutesScreen(),
       ProfileScreen(),
     ];
 
@@ -31,14 +31,20 @@ class _HomeScreenState extends State<HomeScreen> {
         children: screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Asegura que se muestren las 5 opciones fijas
+        type: BottomNavigationBarType.fixed, // Asegura que se muestren las opciones fijas
         currentIndex: _currentIndex,
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Colors.grey,
         onTap: (index) {
           setState(() {
             _currentIndex = index;
           });
         },
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.explore_rounded),
+            label: 'Inicio',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.map_rounded),
             label: 'Mapa',
@@ -50,10 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.add_circle_outline_rounded),
             label: 'Reportar',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.directions_rounded),
-            label: 'Rutas',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_rounded),
