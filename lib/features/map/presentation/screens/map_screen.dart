@@ -36,7 +36,7 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text('Hola, $displayName 👋'),
+        title: Text('Hola, $displayName'),
         backgroundColor: theme.colorScheme.surface,
         actions: [
           IconButton(
