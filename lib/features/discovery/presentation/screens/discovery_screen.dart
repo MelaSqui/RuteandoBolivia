@@ -103,7 +103,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   sliver: SliverToBoxAdapter(
                     child: SizedBox(
-                      height: 480, // Alto incrementado para dar espacio a los botones del card
+                      height: 480, // Espacio suficiente para la tarjeta y los botones inferiores
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -164,192 +164,199 @@ class _DestinationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    return Container(
-      width: 300,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: isDark ? const Color(0xFF1E2329) : Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. Tarjeta Principal (Lugar)
+        Container(
+          width: 300,
+          height: 340, // Altura fija de la tarjeta
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            color: isDark ? const Color(0xFF1E2329) : Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Image Background
-            if (destination.imageUrl != null && destination.imageUrl!.isNotEmpty)
-              Image.network(
-                destination.imageUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _buildPlaceholder(theme),
-              )
-            else
-              _buildPlaceholder(theme),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Image Background
+                if (destination.imageUrl != null && destination.imageUrl!.isNotEmpty)
+                  Image.network(
+                    destination.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _buildPlaceholder(theme),
+                  )
+                else
+                  _buildPlaceholder(theme),
 
-            // Gradient Overlay for text readability
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.9),
-                  ],
-                  stops: const [0.3, 0.95],
-                ),
-              ),
-            ),
-
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.location_on, size: 16, color: Colors.white.withOpacity(0.9)),
-                      const SizedBox(width: 4),
-                      Text(
-                        destination.department,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withOpacity(0.9),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    destination.name,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    destination.description,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withOpacity(0.8),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  
-                  // Botones Side-by-Side (Interactuar con IA y Ver Mapa)
-                  Row(
-                    children: [
-                      // Botón Consultar IA
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.15),
-                                ),
-                              ),
-                              child: TextButton.icon(
-                                onPressed: () => _openAiChatSheet(context),
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  foregroundColor: Colors.white,
-                                ),
-                                icon: const Icon(Icons.assistant_rounded, size: 16, color: Colors.cyanAccent),
-                                label: const Text(
-                                  'Preguntar IA',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      
-                      // Botón Ver Mapa
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: onNavigateToMap,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          icon: const Icon(Icons.map_rounded, size: 16),
-                          label: const Text(
-                            'Ver Mapa',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Blocked Warning Badge
-            if (isBlocked)
-              Positioned(
-                top: 16,
-                right: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                // Gradient Overlay for text readability
+                Container(
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.redAccent.withOpacity(0.4),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.85),
+                      ],
+                      stops: const [0.4, 0.95],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                ),
+
+                // Content (Ubicación, Nombre y Descripción)
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.warning_rounded, color: Colors.white, size: 16),
-                      const SizedBox(width: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, size: 16, color: Colors.white.withOpacity(0.9)),
+                          const SizedBox(width: 4),
+                          Text(
+                            destination.department,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: Colors.white.withOpacity(0.9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       Text(
-                        'Ruta Bloqueada',
-                        style: theme.textTheme.labelMedium?.copyWith(
+                        destination.name,
+                        style: theme.textTheme.titleLarge?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        destination.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
-          ],
+
+                // Blocked Warning Badge
+                if (isBlocked)
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.redAccent.withOpacity(0.4),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.warning_rounded, color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Ruta Bloqueada',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
-      ),
+        
+        const SizedBox(height: 12),
+        
+        // 2. Botones Side-by-Side por DEBAJO de la tarjeta
+        SizedBox(
+          width: 300,
+          child: Row(
+            children: [
+              // Botón Consultar IA
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openAiChatSheet(context),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: BorderSide(
+                      color: isDark ? Colors.white.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.4),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    foregroundColor: isDark ? Colors.white : theme.colorScheme.primary,
+                  ),
+                  icon: Icon(
+                    Icons.assistant_rounded, 
+                    size: 16, 
+                    color: isDark ? Colors.cyanAccent : theme.colorScheme.primary
+                  ),
+                  label: const Text(
+                    'Preguntar IA',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              
+              // Botón Ver Mapa
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onNavigateToMap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.map_rounded, size: 16),
+                  label: const Text(
+                    'Ver Mapa',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
