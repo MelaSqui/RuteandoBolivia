@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:latlong2/latlong.dart';
 
 class MapaTransitabilidad extends StatefulWidget {
@@ -19,8 +18,8 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final patternAsset = isDark
-        ? 'assets/patterns/roads_dark.svg'
-        : 'assets/patterns/roads_light.svg';
+        ? 'assets/patterns/oscuro.png'
+        : 'assets/patterns/claro.png';
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -35,8 +34,8 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
           ),
           Positioned.fill(
             child: Opacity(
-              opacity: isDark ? 0.06 : 0.04,
-              child: SvgPicture.asset(
+              opacity: isDark ? 0.08 : 0.05,
+              child: Image.asset(
                 patternAsset,
                 fit: BoxFit.cover,
               ),
