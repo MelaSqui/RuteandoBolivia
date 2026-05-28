@@ -17,12 +17,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const screens = [
-      DiscoveryScreen(),
-      MapaTransitabilidad(),
-      AlertsScreen(),
-      ReportsScreen(),
-      ProfileScreen(),
+    final screens = [
+      DiscoveryScreen(
+        onNavigateToMap: () {
+          setState(() {
+            _currentIndex = 1;
+          });
+        },
+      ),
+      const MapaTransitabilidad(),
+      const AlertsScreen(),
+      const ReportsScreen(),
+      const ProfileScreen(),
     ];
 
     return Scaffold(
