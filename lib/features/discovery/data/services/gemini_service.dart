@@ -156,4 +156,78 @@ Reglas de validación:
       };
     }
   }
+
+  /// Analyzes route alternatives and roadblocks to provide intelligent travel advice.
+  Future<String> analyzeRouteSafety({
+    required String origin,
+    required String destination,
+    required List<Map<String, dynamic>> routeAlternatives,
+    required List<List<Map<String, dynamic>>> roadblocksPerRoute,
+  }) async {
+    try {
+      final buffer = StringBuffer();
+      buffer.writeln('VIAJE PLANEADO: De $origin a $destination');
+      buffer.writeln('\nALTERNATIVAS DE RUTA DETECTADAS:');
+
+      for (int i = 0; i < routeAlternatives.length; i++) {
+        final route = routeAlternatives[i];
+        final roadblocks = roadblocksPerRoute[i];
+        final summary = route['summary'] ?? 'Via secundaria';
+        final dist = (route['distance_km'] as double?)?.toStringAsFixed(1) ?? '0.0';
+        final dur = (route['duration_min'] as double?)?.toStringAsFixed(0) ?? '0';
+
+        buffer.writeln('Ruta ${i + 1} ($summary):');
+        buffer.writeln('- Distancia: $dist km');
+        buffer.writeln('- Duracion: $dur minutos');
+
+        if (roadblocks.isEmpty) {
+          buffer.writeln('- Estado: TOTALMENTE TRANSITABLE (0 bloqueos activos)');
+        } else {
+          buffer.writeln('- Estado: BLOQUEADA / CON OBSTRUCCIONES (${roadblocks.length} incidentes)');
+          for (var r in roadblocks) {
+            final raw = r['raw_data'];
+            Map<String, dynamic>? rawData;
+            if (raw is Map<String, dynamic>) {
+              rawData = raw;
+            } else if (raw is String) {
+              try {
+                rawData = jsonDecode(raw) as Map<String, dynamic>;
+              } catch (_) {}
+            }
+
+            final evento = r['evento'] ?? 'Incidente vial';
+            final inicio = rawData != null ? (rawData['inicio_seccion'] ?? '') : '';
+            final fin = rawData != null ? (rawData['fin_seccion'] ?? '') : '';
+            String sectorText = '';
+            if (inicio.isNotEmpty && fin.isNotEmpty) {
+              sectorText = ' en tramo $inicio - $fin';
+            }
+
+            buffer.writeln('  * Incidente: $evento$sectorText.');
+          }
+        }
+        buffer.writeln();
+      }
+
+      final prompt = '''
+Eres "Ruteando AI", el copiloto inteligente de viaje para Bolivia.
+Analiza la siguiente informacion de alternativas de ruteo e incidentes viales:
+
+${buffer.toString()}
+
+Escribe una recomendacion amigable, profesional y sumamente concisa (maximo dos parrafos cortos) en español boliviano sobre que ruta debe tomar el usuario y por que.
+Reglas:
+1. Se muy claro indicando cual de las rutas esta libre y es la mas recomendable.
+2. Si todas estan bloqueadas, explicalo con tacto y sugiere extrema precaucion o esperar.
+3. Usa emojis de manera inteligente (⚠️, 🚗, 🟢, 🛑).
+4. Evita tecnicismos y asume que eres un copiloto humano aconsejando a su conductor.
+''';
+
+      final response = await _model.generateContent([Content.text(prompt)]);
+      return response.text ?? 'No se pudo obtener la recomendacion de viaje en este momento. Conduce con cuidado.';
+    } catch (e) {
+      print('Gemini Route Safety Analysis Error: \$e');
+      return 'Error al conectar con el asistente Ruteando AI. Por favor, revisa el estado del mapa y conduce con precaucion.';
+    }
+  }
 }
