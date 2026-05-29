@@ -1,10 +1,12 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
-import 'package:ruteando_bolivia/features/reports/domain/models/mock_photo.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/interactive_scale.dart';
+import 'package:ruteando_bolivia/features/reports/domain/models/report_photo.dart';
 
 class AnimatedPhotoCard extends StatefulWidget {
-  final MockPhoto photo;
+  final ReportPhoto photo;
   final VoidCallback onDelete;
 
   const AnimatedPhotoCard({
@@ -54,7 +56,17 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+
+    final bool isInvalid = widget.photo.isValid == false;
+    final bool isValid = widget.photo.isValid == true;
+    final bool isValidating = widget.photo.isValidating;
+
+    Color borderColor = theme.colorScheme.outline;
+    if (isInvalid) {
+      borderColor = AppTheme.danger;
+    } else if (isValid) {
+      borderColor = AppTheme.positive;
+    }
 
     return AnimatedBuilder(
       animation: _controller,
@@ -72,91 +84,58 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
         height: 110,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
-          color: widget.photo.tintColor.withOpacity(isDark ? 0.15 : 0.08),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: widget.photo.tintColor.withOpacity(isDark ? 0.3 : 0.4),
-            width: 1.5,
+            color: borderColor,
+            width: widget.photo.isValid != null ? 2.5 : 1.5,
           ),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(15),
-          child: Stack(
-            children: [
-              if (widget.photo.imageBytes != null) ...[
-                Positioned.fill(
-                  child: Image.memory(
-                    widget.photo.imageBytes!,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.35),
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.45),
-                        ],
+        child: Stack(
+          children: [
+            // Preview image
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 110,
+                height: 110,
+                child: kIsWeb
+                    ? Image.network(
+                        widget.photo.file.path,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.file(
+                        File(widget.photo.file.path),
+                        fit: BoxFit.cover,
                       ),
-                    ),
+              ),
+            ),
+            
+            // Validating Overlay
+            if (isValidating)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                ),
-              ] else
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        widget.photo.icon,
-                        size: 32,
-                        color: widget.photo.tintColor,
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Text(
-                          widget.photo.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextSecondary,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (widget.photo.isVerified)
-                Positioned(
-                  bottom: 6,
-                  left: 6,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppTheme.positive.withOpacity(0.85),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white24, width: 0.5),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.verified,
-                          size: 10,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 3),
+                        SizedBox(height: 6),
                         Text(
-                          'IA ${widget.photo.aiConfidence.toInt()}%',
-                          style: const TextStyle(
+                          'Analizando...',
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 8,
+                            fontSize: 9,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -164,6 +143,10 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
                     ),
                   ),
                 ),
+              ),
+
+            // Delete Button (only if not currently validating)
+            if (!isValidating)
               Positioned(
                 top: 6,
                 right: 6,
@@ -183,8 +166,45 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
                   ),
                 ),
               ),
-            ],
-          ),
+
+            // Success Badge
+            if (isValid && !isValidating)
+              Positioned(
+                bottom: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    color: AppTheme.positive,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+
+            // Rejection Badge
+            if (isInvalid && !isValidating)
+              Positioned(
+                bottom: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    color: AppTheme.danger,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
