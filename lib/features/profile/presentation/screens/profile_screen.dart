@@ -1,8 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../theme/app_theme.dart';
+import 'edit_profile_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _loading = true;
+  Map<String, dynamic>? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() => _loading = true);
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    try {
+      // Use maybeSingle() which returns the record directly (or null) in current supabase client
+      final Object? result = await Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+      if (result == null) {
+        // no profile found
+      } else if (result is Map<String, dynamic>) {
+        _profile = Map<String, dynamic>.from(result);
+      } else if (result is List && result.isNotEmpty) {
+        final first = result.first;
+        if (first is Map<String, dynamic>) {
+          _profile = Map<String, dynamic>.from(first);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    }
+
+    if (mounted) setState(() => _loading = false);
+  }
 
   Future<void> _signOut(BuildContext context) async {
     await Supabase.instance.client.auth.signOut();
@@ -12,46 +60,193 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final user = Supabase.instance.client.auth.currentUser;
-    final displayName = user?.userMetadata?['display_name'] as String? ?? 'Viajero';
+    final dynamic nameSource =
+        _profile?['full_name'] ?? user?.userMetadata?['display_name'];
+    final String displayName = nameSource?.toString() ?? 'Viajero';
+
+    final dynamic avatarSource = _profile?['avatar_url'];
+    final String? avatarUrl = avatarSource == null
+        ? null
+        : avatarSource.toString();
 
     return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Hola, $displayName',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () => _signOut(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.error,
-                    foregroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Perfil'),
+        backgroundColor: theme.appBarTheme.backgroundColor,
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Card(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    color: theme.colorScheme.surface,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 36,
+                            backgroundColor: theme.colorScheme.primary
+                                .withOpacity(0.12),
+                            backgroundImage:
+                                avatarUrl != null && avatarUrl.isNotEmpty
+                                ? NetworkImage(avatarUrl)
+                                : null,
+                            child: avatarUrl == null || avatarUrl.isEmpty
+                                ? Icon(
+                                    Icons.person,
+                                    size: 36,
+                                    color: theme.colorScheme.onSurface,
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  user?.email ?? '',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.75),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: const Text(
-                    'Cerrar sesión',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  const SizedBox(height: 20),
+
+                  // Stats / quick info
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _InfoTile(
+                          label: 'Rutas',
+                          value: (_profile?['routes_count']?.toString() ?? '—'),
+                          color: AppTheme.positive,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _InfoTile(
+                          label: 'Reportes',
+                          value:
+                              (_profile?['reports_count']?.toString() ?? '—'),
+                          color: AppTheme.warning,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+
+                  const SizedBox(height: 24),
+
+                  SizedBox(
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        final result = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                EditProfileScreen(profile: _profile),
+                          ),
+                        );
+                        if (result == true && mounted) {
+                          _loadProfile();
+                        }
+                      },
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Editar perfil'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.positive,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () => _signOut(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: theme.colorScheme.error,
+                        side: BorderSide(color: theme.colorScheme.error),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cerrar sesión'),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 }
 
+class _InfoTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _InfoTile({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
