@@ -391,7 +391,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  void _showVerificationModal(Uint8List imageBytes, String mimeType, String fileName) {
+  void _showVerificationModal(Uint8List imageBytes, String mimeType, String fileName, String category, String description) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -400,6 +400,8 @@ class _ReportsScreenState extends State<ReportsScreen>
           imageBytes: imageBytes,
           mimeType: mimeType,
           fileName: fileName,
+          category: category,
+          description: description,
           onSuccess: (MockPhoto verifiedPhoto) {
             setState(() {
               _selectedPhotos.add(verifiedPhoto);
@@ -835,7 +837,19 @@ class _ReportsScreenState extends State<ReportsScreen>
                                     return CategoryChip(
                                       category: category,
                                       isSelected: isSelected,
+                                      isDisabled: _selectedPhotos.isNotEmpty,
                                       onTap: () {
+                                        if (_selectedPhotos.isNotEmpty) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: const Text('No puedes cambiar la categoria con fotos asociadas. Elimina las fotos primero.'),
+                                              backgroundColor: AppTheme.danger,
+                                              behavior: SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            ),
+                                          );
+                                          return;
+                                        }
                                         setState(() {
                                           _selectedCategoryIndex = index;
                                         });
@@ -859,6 +873,19 @@ class _ReportsScreenState extends State<ReportsScreen>
                                 child: TextFormField(
                                   controller: _descriptionController,
                                   maxLines: 4,
+                                  readOnly: _selectedPhotos.isNotEmpty,
+                                  onTap: () {
+                                    if (_selectedPhotos.isNotEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: const Text('No puedes editar la descripcion con fotos asociadas. Elimina las fotos primero.'),
+                                          backgroundColor: AppTheme.danger,
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                      );
+                                    }
+                                  },
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: theme.colorScheme.onSurface,
                                   ),
@@ -1155,12 +1182,16 @@ class _AIVerificationDialog extends StatefulWidget {
   final Uint8List imageBytes;
   final String mimeType;
   final String fileName;
+  final String category;
+  final String description;
   final Function(MockPhoto) onSuccess;
 
   const _AIVerificationDialog({
     required this.imageBytes,
     required this.mimeType,
     required this.fileName,
+    required this.category,
+    required this.description,
     required this.onSuccess,
   });
 
@@ -1215,7 +1246,12 @@ class _AIVerificationDialogState extends State<_AIVerificationDialog>
   Future<void> _performVerification() async {
     final startTime = DateTime.now();
 
-    final result = await GeminiService().verifyImage(widget.imageBytes, widget.mimeType);
+    final result = await GeminiService().verifyImage(
+      widget.imageBytes,
+      widget.mimeType,
+      widget.category,
+      widget.description,
+    );
 
     final elapsed = DateTime.now().difference(startTime);
     if (elapsed.inMilliseconds < 2200) {
