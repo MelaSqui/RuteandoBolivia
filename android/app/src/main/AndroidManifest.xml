@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permisos de Ubicacion -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Permisos de Camara -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:label="ruteando_bolivia"
         android:name="${applicationName}"

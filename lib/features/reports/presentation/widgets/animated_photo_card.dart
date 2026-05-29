@@ -1,10 +1,11 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:ruteando_bolivia/theme/app_theme.dart';
-import 'package:ruteando_bolivia/features/reports/domain/models/mock_photo.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/interactive_scale.dart';
 
 class AnimatedPhotoCard extends StatefulWidget {
-  final MockPhoto photo;
+  final XFile photo;
   final VoidCallback onDelete;
 
   const AnimatedPhotoCard({
@@ -54,7 +55,6 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return AnimatedBuilder(
       animation: _controller,
@@ -72,39 +72,28 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
         height: 110,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
-          color: widget.photo.tintColor.withOpacity(isDark ? 0.15 : 0.08),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: widget.photo.tintColor.withOpacity(isDark ? 0.3 : 0.4),
+            color: theme.colorScheme.outline,
             width: 1.5,
           ),
         ),
         child: Stack(
           children: [
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    widget.photo.icon,
-                    size: 32,
-                    color: widget.photo.tintColor,
-                  ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      widget.photo.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextSecondary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                width: 110,
+                height: 110,
+                child: kIsWeb
+                    ? Image.network(
+                        widget.photo.path,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.file(
+                        File(widget.photo.path),
+                        fit: BoxFit.cover,
                       ),
-                    ),
-                  ),
-                ],
               ),
             ),
             Positioned(
