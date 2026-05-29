@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:ruteando_bolivia/theme/app_theme.dart';
 
 /// A single road event from the Supabase `road_events` table.
 class RoadEvent {
@@ -191,7 +192,7 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
                         ),
                       ),
                       Text(
-                        'Ruta ${event.ruta} · ${event.departamento}',
+                        '${_formatRuta(event.ruta)} · ${event.departamento}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.grey,
                         ),
@@ -214,6 +215,15 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
         ),
       ),
     );
+  }
+
+  String _formatRuta(String ruta) {
+    try {
+      final parsed = int.parse(ruta);
+      return 'Ruta $parsed';
+    } catch (_) {
+      return 'Ruta $ruta';
+    }
   }
 
   String _formatDateTime(String dateTime) {
@@ -262,22 +272,83 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Mapa de Transitabilidad'),
-        backgroundColor: theme.colorScheme.surface,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _fetchEvents,
-            tooltip: 'Actualizar eventos',
-          ),
-        ],
-      ),
       body: Stack(
+        fit: StackFit.expand,
         children: [
-          // ──── Map ────
-          FlutterMap(
+          Container(color: isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
+          Positioned.fill(
+            child: Opacity(
+              opacity: isDark ? 0.65 : 0.45,
+              child: Image.asset(
+                isDark ? 'assets/patterns/oscuro.png' : 'assets/patterns/claro.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          Column(
+            children: [
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        color: AppTheme.positive,
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              theme.colorScheme.primary,
+                              theme.colorScheme.primary.withOpacity(0.7),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.colorScheme.primary.withOpacity(0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.route_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Ruteando Bolivia',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.positive,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded, color: AppTheme.positive),
+                        onPressed: _fetchEvents,
+                        tooltip: 'Actualizar eventos',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    // ──── Map ────
+                    FlutterMap(
             options: MapOptions(
               initialCenter: _boliviaCenter,
               initialZoom: 6.0,
@@ -455,6 +526,11 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
                 ),
               ),
             ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

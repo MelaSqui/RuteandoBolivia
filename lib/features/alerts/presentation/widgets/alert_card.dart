@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
 
@@ -143,12 +144,59 @@ class _AlertCardState extends State<AlertCard> {
   }
 
   String _title(Map<String, dynamic> ev) {
-    final ruta = (ev['ruta'] ?? '').toString().trim();
+    final rawData = ev['raw_data'];
+    Map<String, dynamic>? raw;
+    if (rawData is Map<String, dynamic>) {
+      raw = rawData;
+    } else if (rawData is String) {
+      try {
+        raw = jsonDecode(rawData) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+
+    final String rutaRaw = (ev['ruta'] ?? '').toString().trim();
+    String rutaText = '';
+    if (rutaRaw.isNotEmpty) {
+      try {
+        final parsedRuta = int.parse(rutaRaw);
+        rutaText = 'Ruta $parsedRuta';
+      } catch (_) {
+        rutaText = 'Ruta $rutaRaw';
+      }
+    }
+
+    if (raw != null) {
+      final inicio = (raw['inicio_seccion'] ?? '').toString().trim();
+      final fin = (raw['fin_seccion'] ?? '').toString().trim();
+      final sector = (raw['descr_sector'] ?? '').toString().trim();
+
+      String details = '';
+      if (inicio.isNotEmpty && fin.isNotEmpty) {
+        details = '$inicio - $fin';
+      } else if (inicio.isNotEmpty) {
+        details = inicio;
+      } else if (fin.isNotEmpty) {
+        details = fin;
+      }
+
+      if (sector.isNotEmpty) {
+        if (details.isNotEmpty) {
+          details = '$details ($sector)';
+        } else {
+          details = sector;
+        }
+      }
+
+      if (details.isNotEmpty) {
+        return rutaText.isNotEmpty ? '$rutaText: $details' : details;
+      }
+    }
+
     final seccion = (ev['seccion'] ?? '').toString().trim();
-    if (ruta.isEmpty && seccion.isEmpty) return 'Alerta vial';
-    if (seccion.isEmpty) return ruta;
-    if (ruta.isEmpty) return seccion;
-    return '$ruta, $seccion';
+    if (rutaText.isEmpty && seccion.isEmpty) return 'Alerta vial';
+    if (seccion.isEmpty) return rutaText;
+    if (rutaText.isEmpty) return 'Sección $seccion';
+    return '$rutaText, Sección $seccion';
   }
 
   String _description(Map<String, dynamic> ev) {

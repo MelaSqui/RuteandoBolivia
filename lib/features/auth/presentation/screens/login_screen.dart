@@ -428,8 +428,9 @@ class _LoginScreenState extends State<LoginScreen>
                         const SizedBox(height: 28),
 
                         // ─── Link a Registro ───
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(
                               '¿No tienes cuenta? ',
