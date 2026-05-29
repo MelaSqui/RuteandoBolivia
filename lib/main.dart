@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'theme/app_theme.dart';
+import 'services/theme_service.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 
@@ -14,14 +15,11 @@ void main() async {
     throw Exception(
       'Faltan las variables de entorno de Supabase.\n\n'
       'Asegúrate de ejecutar la aplicación con el archivo de configuración:\n'
-      'flutter run -d chrome --dart-define-from-file=backend/.env'
+      'flutter run -d chrome --dart-define-from-file=backend/.env',
     );
   }
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
 
   runApp(const RuteandoBoliviaApp());
 }
@@ -31,13 +29,18 @@ class RuteandoBoliviaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Ruteando Bolivia',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
-      home: const AuthGate(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeService,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          title: 'Ruteando Bolivia',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeMode,
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }
@@ -92,14 +95,8 @@ class _SplashScreen extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: isDark
-                ? [
-                    const Color(0xFF0A0E14),
-                    const Color(0xFF0F1923),
-                  ]
-                : [
-                    const Color(0xFFE0F2FE),
-                    const Color(0xFFF0FDF4),
-                  ],
+                ? [const Color(0xFF0A0E14), const Color(0xFF0F1923)]
+                : [const Color(0xFFE0F2FE), const Color(0xFFF0FDF4)],
           ),
         ),
         child: Center(
@@ -156,4 +153,3 @@ class _SplashScreen extends StatelessWidget {
     );
   }
 }
-

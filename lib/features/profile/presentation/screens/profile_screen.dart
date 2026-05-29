@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../theme/app_theme.dart';
+import 'edit_profile_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -59,14 +60,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final user = Supabase.instance.client.auth.currentUser;
-    final dynamic _nameSource =
+    final dynamic nameSource =
         _profile?['full_name'] ?? user?.userMetadata?['display_name'];
-    final String displayName = _nameSource?.toString() ?? 'Viajero';
+    final String displayName = nameSource?.toString() ?? 'Viajero';
 
-    final dynamic _avatarSource = _profile?['avatar_url'];
-    final String? avatarUrl = _avatarSource == null
+    final dynamic avatarSource = _profile?['avatar_url'];
+    final String? avatarUrl = avatarSource == null
         ? null
-        : _avatarSource.toString();
+        : avatarSource.toString();
 
     return Scaffold(
       appBar: AppBar(
@@ -160,8 +161,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   SizedBox(
                     height: 48,
                     child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: navegar a edición de perfil
+                      onPressed: () async {
+                        final result = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                EditProfileScreen(profile: _profile),
+                          ),
+                        );
+                        if (result == true && mounted) {
+                          _loadProfile();
+                        }
                       },
                       icon: const Icon(Icons.edit),
                       label: const Text('Editar perfil'),
