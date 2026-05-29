@@ -6,12 +6,14 @@ import 'package:ruteando_bolivia/features/reports/presentation/widgets/interacti
 class CategoryChip extends StatelessWidget {
   final ReportCategory category;
   final bool isSelected;
+  final bool isDisabled;
   final VoidCallback onTap;
 
   const CategoryChip({
     super.key,
     required this.category,
     required this.isSelected,
+    this.isDisabled = false,
     required this.onTap,
   });
 
@@ -29,6 +31,18 @@ class CategoryChip extends StatelessWidget {
     final unselectedBorder = theme.colorScheme.outline;
     final unselectedText = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
+    Color bg = isSelected ? selectedBg : unselectedBg;
+    Color border = isSelected ? selectedBorder : unselectedBorder;
+    Color text = isSelected ? selectedText : unselectedText;
+
+    if (isDisabled && !isSelected) {
+      bg = isDark
+          ? theme.colorScheme.surface.withOpacity(0.4)
+          : theme.colorScheme.background.withOpacity(0.4);
+      border = unselectedBorder.withOpacity(0.3);
+      text = text.withOpacity(0.4);
+    }
+
     return InteractiveScale(
       onTap: onTap,
       child: AnimatedContainer(
@@ -36,10 +50,10 @@ class CategoryChip extends StatelessWidget {
         curve: Curves.easeOut,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? selectedBg : unselectedBg,
+          color: bg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? selectedBorder : unselectedBorder,
+            color: border,
             width: 1.5,
           ),
         ),
@@ -49,14 +63,14 @@ class CategoryChip extends StatelessWidget {
             Icon(
               category.icon,
               size: 20,
-              color: isSelected ? selectedText : unselectedText,
+              color: text,
             ),
             const SizedBox(width: 8),
             Text(
               category.label,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? selectedText : unselectedText,
+                color: text,
               ),
             ),
           ],

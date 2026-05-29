@@ -24,6 +24,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   
   int? _selectedCategoryIndex;
   bool _isSubmitting = false;
+  bool _isGeminiApiKeyMissing = false;
 
   final List<ReportCategory> _categories = [
     const ReportCategory(
@@ -60,6 +61,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
     super.initState();
     _determinePosition();
     _descriptionController.addListener(_onDescriptionChanged);
+    _checkApiKey();
+  }
+
+  void _checkApiKey() {
+    const apiKey = String.fromEnvironment('GEMINI_API_KEY');
+    if (apiKey.isEmpty) {
+      setState(() {
+        _isGeminiApiKeyMissing = true;
+      });
+      debugPrint('WARNING: GEMINI_API_KEY is not defined in environment variables.');
+    }
   }
 
   void _onDescriptionChanged() {
@@ -262,7 +274,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _validatePhotoWithGemini(ReportPhoto reportPhoto) async {
     const apiKey = String.fromEnvironment('GEMINI_API_KEY');
     if (apiKey.isEmpty) {
-      debugPrint('WARNING: GEMINI_API_KEY is not defined in environment variables.');
+      debugPrint('WARNING: GEMINI_API_KEY no esta configurada. Omitiendo validacion de IA.');
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
       setState(() {
@@ -273,6 +285,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     try {
+      debugPrint('Iniciando analisis de imagen con Gemini...');
       final bytes = await reportPhoto.file.readAsBytes();
       final category = _selectedCategoryIndex != null ? _categories[_selectedCategoryIndex!].label : '';
       final description = _descriptionController.text;
@@ -280,32 +293,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final content = [
         Content.multi([
           TextPart('''
-          Analiza la siguiente imagen de un reporte vial en Bolivia y determina si es coherente con la categoria del incidente y la descripcion provista por el usuario.
-          
-          Categoria: "$category"
+          Eres un asistente experto en seguridad vial y control de transito en Bolivia.
+          Analiza la siguiente imagen de un reporte vial y determina si es coherente con la categoria del incidente y la descripcion del usuario.
+
+          Categoria seleccionada: "$category"
           Descripcion del usuario: "$description"
-          
-          Verifica si la fotografia representa de forma veridica dicho suceso (ej. si es bloqueo de carreteras, la foto debe mostrar calles bloqueadas, llantas, protestas, etc. Si es accidente, debe mostrar choques de autos).
-          
-          Responde exclusivamente en formato JSON estricto con esta estructura:
+
+          Instrucciones de evaluacion:
+          1. Se estricto. La imagen debe mostrar evidencia clara y directa del incidente reportado en la categoria y descripcion.
+          2. Si la categoria es "Bloqueo", la imagen debe mostrar elementos que obstruyan el libre transito (barricadas, piedras, llantas, debrises, manifestantes, o calles totalmente cerradas). Si la calle o carretera se ve transitable, libre, despejada o limpia de obstaculos, debes marcar el reporte como NO valido.
+          3. Si la categoria es "Accidente", la imagen debe mostrar vehiculos colisionados, personal de emergencia o danos viales resultantes de un siniestro.
+          4. Si la categoria es "Clima", la imagen debe evidenciar factores de clima adversos (lluvia intensa, granizo, neblina densa, inundacion).
+          5. Si la categoria es "Estado de Ruta", la imagen debe mostrar baches, asfalto danado, derrumbes o tierra inestable.
+          6. Si la imagen muestra una situacion normal, transito fluido, una calle limpia o no tiene relacion con lo descrito, determina que es NO valido.
+
+          Responde unicamente en formato JSON estricto:
           {
             "valido": true o false,
-            "motivo": "Explicacion muy breve de por que coincide o no coincide en espanol"
+            "motivo": "Explicacion concisa de por que es valido o el motivo del rechazo en espanol"
           }
-          
-          No incluyas markdown (```json), codigo o texto adicional. Solo el objeto JSON.
+
+          No uses bloques de codigo markdown. Responde solo con el JSON crudo.
           '''),
           DataPart('image/jpeg', bytes),
         ])
       ];
 
       final model = GenerativeModel(
-        model: 'gemini-1.5-flash',
+        model: 'gemini-3.5-flash',
         apiKey: apiKey,
       );
 
       final response = await model.generateContent(content);
       final text = response.text;
+      
+      debugPrint('Respuesta cruda de Gemini: $text');
       
       if (text == null || text.trim().isEmpty) {
         throw Exception('Respuesta vacia del servicio de IA.');
@@ -320,6 +342,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final bool valido = result['valido'] ?? false;
       final String motivo = result['motivo'] ?? 'No se pudo verificar la coherencia.';
 
+      debugPrint('Analisis completado. Valido: $valido, Motivo: $motivo');
+
       if (!mounted) return;
       setState(() {
         reportPhoto.isValidating = false;
@@ -329,9 +353,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
     } catch (e) {
       debugPrint('Error en el analisis de IA: $e');
       if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error en el analisis de la IA: $e. Se aprobo por contingencia.'),
+          backgroundColor: AppTheme.warning,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+
       setState(() {
         reportPhoto.isValidating = false;
-        // En caso de fallo técnico temporal, dejamos pasar para no bloquear la usabilidad
         reportPhoto.isValid = true;
       });
     }
@@ -690,7 +722,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     return CategoryChip(
                       category: category,
                       isSelected: isSelected,
+                      isDisabled: _selectedPhotos.isNotEmpty,
                       onTap: () {
+                        if (_selectedPhotos.isNotEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('No puedes cambiar la categoria con fotos asociadas. Elimina las fotos primero.'),
+                              backgroundColor: AppTheme.warning,
+                            ),
+                          );
+                          return;
+                        }
                         setState(() {
                           _selectedCategoryIndex = index;
                         });
@@ -711,13 +753,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 4,
+                  readOnly: _selectedPhotos.isNotEmpty,
+                  onTap: () {
+                    if (_selectedPhotos.isNotEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No puedes editar la descripcion con fotos asociadas. Elimina las fotos primero.'),
+                          backgroundColor: AppTheme.warning,
+                        ),
+                      );
+                    }
+                  },
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
+                    color: _selectedPhotos.isNotEmpty
+                        ? (isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)
+                        : theme.colorScheme.onSurface,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Detalla lo que esta ocurriendo en la ruta (ej. bloqueo de transportistas, derrumbe parcial)...',
                     alignLabelWithHint: true,
-                    contentPadding: EdgeInsets.all(16),
+                    contentPadding: const EdgeInsets.all(16),
+                    filled: true,
+                    fillColor: _selectedPhotos.isNotEmpty
+                        ? (isDark ? const Color(0xFF161A22) : const Color(0xFFE5E7EB))
+                        : null,
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -745,6 +804,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                   ),
                 ),
+                if (_isGeminiApiKeyMissing) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Modo Demo: GEMINI_API_KEY no configurada. Las fotos se aprobaran automaticamente sin analisis real.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppTheme.warning,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 110,
