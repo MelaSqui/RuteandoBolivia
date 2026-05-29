@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:ruteando_bolivia/theme/app_theme.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/interactive_scale.dart';
+import 'package:ruteando_bolivia/features/reports/domain/models/report_photo.dart';
 
 class AnimatedPhotoCard extends StatefulWidget {
-  final XFile photo;
+  final ReportPhoto photo;
   final VoidCallback onDelete;
 
   const AnimatedPhotoCard({
@@ -56,6 +57,17 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final bool isInvalid = widget.photo.isValid == false;
+    final bool isValid = widget.photo.isValid == true;
+    final bool isValidating = widget.photo.isValidating;
+
+    Color borderColor = theme.colorScheme.outline;
+    if (isInvalid) {
+      borderColor = AppTheme.danger;
+    } else if (isValid) {
+      borderColor = AppTheme.positive;
+    }
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
@@ -74,12 +86,13 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: theme.colorScheme.outline,
-            width: 1.5,
+            color: borderColor,
+            width: widget.photo.isValid != null ? 2.5 : 1.5,
           ),
         ),
         child: Stack(
           children: [
+            // Preview image
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: SizedBox(
@@ -87,34 +100,110 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
                 height: 110,
                 child: kIsWeb
                     ? Image.network(
-                        widget.photo.path,
+                        widget.photo.file.path,
                         fit: BoxFit.cover,
                       )
                     : Image.file(
-                        File(widget.photo.path),
+                        File(widget.photo.file.path),
                         fit: BoxFit.cover,
                       ),
               ),
             ),
-            Positioned(
-              top: 6,
-              right: 6,
-              child: InteractiveScale(
-                onTap: _handleDelete,
+            
+            // Validating Overlay
+            if (isValidating)
+              Positioned.fill(
                 child: Container(
-                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Analizando...',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Delete Button (only if not currently validating)
+            if (!isValidating)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: InteractiveScale(
+                  onTap: _handleDelete,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+
+            // Success Badge
+            if (isValid && !isValidating)
+              Positioned(
+                bottom: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
-                    color: Colors.black54,
+                    color: AppTheme.positive,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
-                    Icons.close,
-                    size: 14,
+                    Icons.check_rounded,
+                    size: 12,
                     color: Colors.white,
                   ),
                 ),
               ),
-            ),
+
+            // Rejection Badge
+            if (isInvalid && !isValidating)
+              Positioned(
+                bottom: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    color: AppTheme.danger,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
           ],
         ),
       ),

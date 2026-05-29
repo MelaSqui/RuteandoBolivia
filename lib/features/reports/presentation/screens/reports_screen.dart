@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
 import 'package:ruteando_bolivia/features/reports/domain/models/report_category.dart';
+import 'package:ruteando_bolivia/features/reports/domain/models/report_photo.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/interactive_scale.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/category_chip.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/animated_photo_card.dart';
@@ -47,24 +48,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
     ),
   ];
 
-  final List<XFile> _selectedPhotos = [];
+  final List<ReportPhoto> _selectedPhotos = [];
   final ImagePicker _picker = ImagePicker();
   
   Position? _currentPosition;
   bool _isLoadingLocation = false;
   String _locationError = '';
 
-  bool _isAnalyzingAI = false;
-  String _aiStatusMessage = '';
-
   @override
   void initState() {
     super.initState();
     _determinePosition();
+    _descriptionController.addListener(_onDescriptionChanged);
+  }
+
+  void _onDescriptionChanged() {
+    // Re-evaluar de forma reactiva el estado para habilitar/deshabilitar la carga de fotos
+    setState(() {});
   }
 
   @override
   void dispose() {
+    _descriptionController.removeListener(_onDescriptionChanged);
     _descriptionController.dispose();
     super.dispose();
   }
@@ -110,16 +115,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
         desiredAccuracy: LocationAccuracy.high,
       );
 
+      if (!mounted) return;
       setState(() {
         _currentPosition = position;
         _isLoadingLocation = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _locationError = 'Error al obtener GPS: $e';
         _isLoadingLocation = false;
       });
     }
+  }
+
+  void _onAddPhotoTap() {
+    if (_selectedCategoryIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, selecciona una categoria para tu reporte antes de añadir una foto.'),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
+      return;
+    }
+    if (_descriptionController.text.trim().length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, escribe una descripcion detallada (minimo 8 caracteres) antes de añadir una foto.'),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
+      return;
+    }
+    _showImageSourceBottomSheet();
   }
 
   void _showImageSourceBottomSheet() {
@@ -206,9 +235,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
           );
           return;
         }
+
+        final reportPhoto = ReportPhoto(
+          file: image,
+          isValidating: true,
+        );
+
         setState(() {
-          _selectedPhotos.add(image);
+          _selectedPhotos.add(reportPhoto);
         });
+
+        // Disparar validacion en background
+        _validatePhotoWithGemini(reportPhoto);
       }
     } catch (e) {
       if (!mounted) return;
@@ -221,44 +259,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  void _removePhoto(int index) {
-    setState(() {
-      _selectedPhotos.removeAt(index);
-    });
-  }
-
-  Future<bool> _analyzeImageWithGemini(XFile image, String description) async {
+  Future<void> _validatePhotoWithGemini(ReportPhoto reportPhoto) async {
     const apiKey = String.fromEnvironment('GEMINI_API_KEY');
     if (apiKey.isEmpty) {
       debugPrint('WARNING: GEMINI_API_KEY is not defined in environment variables.');
-      setState(() {
-        _aiStatusMessage = 'Simulando validacion de IA (Clave API no configurada)...';
-      });
       await Future.delayed(const Duration(seconds: 2));
-      return true;
+      if (!mounted) return;
+      setState(() {
+        reportPhoto.isValidating = false;
+        reportPhoto.isValid = true;
+      });
+      return;
     }
 
     try {
-      setState(() {
-        _aiStatusMessage = 'Gemini analizando fotografia del incidente...';
-      });
+      final bytes = await reportPhoto.file.readAsBytes();
+      final category = _selectedCategoryIndex != null ? _categories[_selectedCategoryIndex!].label : '';
+      final description = _descriptionController.text;
 
-      final bytes = await image.readAsBytes();
       final content = [
         Content.multi([
           TextPart('''
-          Analiza la siguiente imagen de un reporte vial y la descripcion del usuario.
-          Determina si la imagen respalda o coincide con la descripcion del incidente (ej. bloqueo de carretera, derrumbe, bache, accidente, etc.).
+          Analiza la siguiente imagen de un reporte vial en Bolivia y determina si es coherente con la categoria del incidente y la descripcion provista por el usuario.
           
+          Categoria: "$category"
           Descripcion del usuario: "$description"
+          
+          Verifica si la fotografia representa de forma veridica dicho suceso (ej. si es bloqueo de carreteras, la foto debe mostrar calles bloqueadas, llantas, protestas, etc. Si es accidente, debe mostrar choques de autos).
           
           Responde exclusivamente en formato JSON estricto con esta estructura:
           {
             "valido": true o false,
-            "motivo": "Explicacion muy breve y concisa en espanol del resultado"
+            "motivo": "Explicacion muy breve de por que coincide o no coincide en espanol"
           }
           
-          No incluyas markdown, codigos o texto adicional en tu respuesta. Solo el objeto JSON.
+          No incluyas markdown (```json), codigo o texto adicional. Solo el objeto JSON.
           '''),
           DataPart('image/jpeg', bytes),
         ])
@@ -285,30 +320,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final bool valido = result['valido'] ?? false;
       final String motivo = result['motivo'] ?? 'No se pudo verificar la coherencia.';
 
-      if (!valido) {
-        if (!mounted) return false;
-        _showAiRejectionDialog(motivo);
-        return false;
-      }
-
-      return true;
+      if (!mounted) return;
+      setState(() {
+        reportPhoto.isValidating = false;
+        reportPhoto.isValid = valido;
+        reportPhoto.rejectionReason = valido ? null : motivo;
+      });
     } catch (e) {
       debugPrint('Error en el analisis de IA: $e');
-      if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al analizar la imagen con IA: $e. Reintentando sin IA...'),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
-      return true;
+      if (!mounted) return;
+      setState(() {
+        reportPhoto.isValidating = false;
+        // En caso de fallo técnico temporal, dejamos pasar para no bloquear la usabilidad
+        reportPhoto.isValid = true;
+      });
     }
   }
 
-  void _showAiRejectionDialog(String motivo) {
+  void _showRejectionDetailsDialog(ReportPhoto photo, int index) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) {
         final theme = Theme.of(context);
         return Dialog(
@@ -323,26 +354,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: AppTheme.danger.withOpacity(0.15),
+                    color: AppTheme.danger.withOpacity(0.12),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.report_problem_rounded,
-                    size: 40,
+                    size: 32,
                     color: AppTheme.danger,
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 16),
                 Text(
-                  'Reporte no Validado por IA',
+                  'Foto Rechazada por IA',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
                   ),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'El analisis automatico de la fotografia indica que esta no coincide con la descripcion del incidente vial provista.',
+                  'Esta fotografia no coincide con el incidente reportado.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.brightness == Brightness.dark
@@ -353,7 +383,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 const SizedBox(height: 12),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(12),
@@ -374,31 +404,46 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        motivo,
+                        photo.rejectionReason ?? 'No cumple con los requisitos del reporte.',
                         style: theme.textTheme.bodyMedium,
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
-                InteractiveScale(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      color: AppTheme.danger,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'Revisar reporte',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('Cerrar'),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _removePhoto(index);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.danger,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('Eliminar foto'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -408,7 +453,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Future<void> _submitReport() async {
+  void _removePhoto(int index) {
+    setState(() {
+      _selectedPhotos.removeAt(index);
+    });
+  }
+
+  void _submitReport() {
     if (_selectedCategoryIndex == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -444,28 +495,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return;
     }
 
-    setState(() {
-      _isSubmitting = true;
-      _isAnalyzingAI = true;
-      _aiStatusMessage = 'Iniciando verificacion del reporte...';
-    });
+    if (_selectedPhotos.any((photo) => photo.isValidating)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, espera a que finalice el analisis de las fotografias.'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
 
-    // Validar primera imagen con Gemini
-    final bool isImageValid = await _analyzeImageWithGemini(
-      _selectedPhotos.first,
-      _descriptionController.text,
-    );
-
-    if (!isImageValid) {
-      setState(() {
-        _isSubmitting = false;
-        _isAnalyzingAI = false;
-      });
+    if (_selectedPhotos.any((photo) => photo.isValid == false)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, remueve las fotografias que fueron rechazadas por la IA.'),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
       return;
     }
 
     setState(() {
-      _aiStatusMessage = 'Guardando reporte en el sistema...';
+      _isSubmitting = true;
     });
 
     // Log para el desarrollador del mapa con los datos completos
@@ -478,11 +529,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     debugPrint('=================================');
 
     // Simular el envio
-    Future.delayed(const Duration(milliseconds: 1000), () {
+    Future.delayed(const Duration(milliseconds: 1500), () {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _isAnalyzingAI = false;
       });
 
       // Limpiar formulario
@@ -492,7 +542,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _selectedPhotos.clear();
       });
 
-      // Mostrar bottom sheet de exito
+      // Mostrar bottom sheet de exito con animacion
       showModalBottomSheet(
         context: context,
         backgroundColor: Colors.transparent,
@@ -540,7 +590,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 const SizedBox(height: 18),
                 Text(
                   'Reporte Creado con Exito',
-                  style: theme.textTheme.titleLarge?.copyWith(
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -589,323 +639,299 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final bool isFormReadyForPhotos = _selectedCategoryIndex != null && _descriptionController.text.trim().length >= 8;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nuevo Reporte'),
         centerTitle: false,
       ),
       body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Reportar un Incidente',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 24,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Informa a la comunidad sobre el estado de la transitabilidad. Cada reporte cuenta.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cabecera e informacion
+                Text(
+                  'Reportar un Incidente',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 24,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Informa a la comunidad sobre el estado de la transitabilidad. Cada reporte cuenta.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 24),
 
-                    // Categoria
-                    Text(
-                      'Categoria del incidente',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: List.generate(_categories.length, (index) {
-                        final category = _categories[index];
-                        final isSelected = _selectedCategoryIndex == index;
-                        return CategoryChip(
-                          category: category,
-                          isSelected: isSelected,
-                          onTap: () {
-                            setState(() {
-                              _selectedCategoryIndex = index;
-                            });
-                          },
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Descripcion
-                    Text(
-                      'Descripcion del suceso',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _descriptionController,
-                      maxLines: 4,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'Detalla lo que esta ocurriendo en la ruta (ej. bloqueo de transportistas, derrumbe parcial)...',
-                        alignLabelWithHint: true,
-                        contentPadding: EdgeInsets.all(16),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Por favor introduce una breve descripcion.';
-                        }
-                        if (value.trim().length < 8) {
-                          return 'La descripcion debe ser mas detallada.';
-                        }
-                        return null;
+                // Categoria
+                Text(
+                  'Categoria del incidente',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: List.generate(_categories.length, (index) {
+                    final category = _categories[index];
+                    final isSelected = _selectedCategoryIndex == index;
+                    return CategoryChip(
+                      category: category,
+                      isSelected: isSelected,
+                      onTap: () {
+                        setState(() {
+                          _selectedCategoryIndex = index;
+                        });
                       },
-                    ),
-                    const SizedBox(height: 24),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 24),
 
-                    // Fotografias
-                    Text(
-                      'Fotografias (obligatorio para validar)',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 110,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: _selectedPhotos.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == _selectedPhotos.length) {
-                            return AddPhotoCard(onTap: _showImageSourceBottomSheet);
+                // Descripcion
+                Text(
+                  'Descripcion del suceso',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descriptionController,
+                  maxLines: 4,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Detalla lo que esta ocurriendo en la ruta (ej. bloqueo de transportistas, derrumbe parcial)...',
+                    alignLabelWithHint: true,
+                    contentPadding: EdgeInsets.all(16),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Por favor introduce una breve descripcion.';
+                    }
+                    if (value.trim().length < 8) {
+                      return 'La descripcion debe ser mas detallada.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 24),
+
+                // Fotografias
+                Text(
+                  'Fotografias (obligatorio para validar)',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Completa primero la categoria y descripcion para desbloquear esta seccion.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 110,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: _selectedPhotos.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == _selectedPhotos.length) {
+                        return Opacity(
+                          opacity: isFormReadyForPhotos ? 1.0 : 0.45,
+                          child: AddPhotoCard(onTap: _onAddPhotoTap),
+                        );
+                      }
+                      final photo = _selectedPhotos[index];
+                      return GestureDetector(
+                        onTap: () {
+                          if (photo.isValid == false) {
+                            _showRejectionDetailsDialog(photo, index);
                           }
-                          final photo = _selectedPhotos[index];
-                          return AnimatedPhotoCard(
-                            key: ValueKey(photo.path),
-                            photo: photo,
-                            onDelete: () => _removePhoto(index),
-                          );
                         },
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+                        child: AnimatedPhotoCard(
+                          key: ValueKey(photo.file.path),
+                          photo: photo,
+                          onDelete: () => _removePhoto(index),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
 
-                    // Ubicacion del reporte
-                    Text(
-                      'Ubicacion del reporte',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                // Ubicacion del reporte
+                Text(
+                  'Ubicacion del reporte',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _locationError.isNotEmpty
+                          ? AppTheme.danger.withOpacity(0.5)
+                          : theme.colorScheme.outline,
+                      width: 1.5,
                     ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
                           color: _locationError.isNotEmpty
-                              ? AppTheme.danger.withOpacity(0.5)
-                              : theme.colorScheme.outline,
-                          width: 1.5,
+                              ? AppTheme.danger.withOpacity(0.12)
+                              : AppTheme.climate.withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.location_on_rounded,
+                          size: 20,
+                          color: _locationError.isNotEmpty
+                              ? AppTheme.danger
+                              : AppTheme.climate,
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: _locationError.isNotEmpty
-                                  ? AppTheme.danger.withOpacity(0.12)
-                                  : AppTheme.climate.withOpacity(0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.location_on_rounded,
-                              size: 20,
-                              color: _locationError.isNotEmpty
-                                  ? AppTheme.danger
-                                  : AppTheme.climate,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Ubicacion del Dispositivo',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                if (_isLoadingLocation)
-                                  Text(
-                                    'Detectando posicion en tiempo real...',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                                    ),
-                                  )
-                                else if (_locationError.isNotEmpty)
-                                  Text(
-                                    _locationError,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: AppTheme.danger,
-                                    ),
-                                  )
-                                else if (_currentPosition != null)
-                                  Text(
-                                    'Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}, Lng: ${_currentPosition!.longitude.toStringAsFixed(6)} (Precision: +/- ${_currentPosition!.accuracy.toStringAsFixed(1)}m)',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                                    ),
-                                  )
-                                else
-                                  Text(
-                                    'GPS inactivo',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          if (_isLoadingLocation)
-                            const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppTheme.climate,
-                              ),
-                            )
-                          else if (_locationError.isNotEmpty)
-                            TextButton(
-                              onPressed: _determinePosition,
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(50, 30),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text(
-                                'Reintentar',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: AppTheme.climate,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            )
-                          else if (_currentPosition != null)
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              'GPS Activo',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppTheme.positive,
+                              'Ubicacion del Dispositivo',
+                              style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Boton de envio
-                    InteractiveScale(
-                      onTap: _isSubmitting ? null : _submitReport,
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(
-                          color: _isSubmitting 
-                              ? AppTheme.positive.withOpacity(0.5) 
-                              : AppTheme.positive,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        alignment: Alignment.center,
-                        child: _isSubmitting
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2.5,
+                            const SizedBox(height: 2),
+                            if (_isLoadingLocation)
+                              Text(
+                                'Detectando posicion en tiempo real...',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                                 ),
                               )
-                            : Text(
-                                'Enviar reporte',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
+                            else if (_locationError.isNotEmpty)
+                              Text(
+                                _locationError,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: AppTheme.danger,
+                                ),
+                              )
+                            else if (_currentPosition != null)
+                              Text(
+                                'Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}, Lng: ${_currentPosition!.longitude.toStringAsFixed(6)} (Precision: +/- ${_currentPosition!.accuracy.toStringAsFixed(1)}m)',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                                ),
+                              )
+                            else
+                              Text(
+                                'GPS inactivo',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                                 ),
                               ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-            ),
-            if (_isAnalyzingAI)
-              Container(
-                color: Colors.black.withOpacity(0.6),
-                width: double.infinity,
-                height: double.infinity,
-                child: Center(
-                  child: Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 32),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const CircularProgressIndicator(
+                      const SizedBox(width: 10),
+                      if (_isLoadingLocation)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
                             color: AppTheme.climate,
                           ),
-                          const SizedBox(height: 20),
-                          Text(
-                            'Validacion por Inteligencia Artificial',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+                        )
+                      else if (_locationError.isNotEmpty)
+                        TextButton(
+                          onPressed: _determinePosition,
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(50, 30),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: Text(
+                            'Reintentar',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppTheme.climate,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _aiStatusMessage,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                            ),
+                        )
+                      else if (_currentPosition != null)
+                        Text(
+                          'GPS Activo',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppTheme.positive,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-          ],
+                const SizedBox(height: 32),
+
+                // Boton de envio
+                InteractiveScale(
+                  onTap: _isSubmitting ? null : _submitReport,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: _isSubmitting 
+                          ? AppTheme.positive.withOpacity(0.5) 
+                          : AppTheme.positive,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    alignment: Alignment.center,
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : Text(
+                            'Enviar reporte',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
         ),
       ),
     );
