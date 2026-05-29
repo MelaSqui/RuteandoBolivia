@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
 import 'package:ruteando_bolivia/features/routes/data/services/route_service.dart';
 import 'package:ruteando_bolivia/features/routes/utils/route_utils.dart';
@@ -221,17 +222,89 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
       roadblocksPerRoute.add(collisions);
     }
 
+    // ── RECÁLCULO INTELIGENTE ──
+    // Si TODAS las rutas directas están bloqueadas, buscar desvíos por pueblos intermedios
+    final bool allRoutesBlocked = roadblocksPerRoute.every((blocks) => blocks.isNotEmpty);
+
+    List<Map<String, dynamic>> finalRoutes = List.from(routes);
+    List<List<Map<String, dynamic>>> finalRoadblocks = List.from(roadblocksPerRoute);
+
+    if (allRoutesBlocked) {
+      debugPrint('[Ruteando] Todas las rutas directas bloqueadas — iniciando recálculo inteligente...');
+
+      // Mostrar estado intermedio al usuario mientras se recalcula
+      if (mounted) {
+        setState(() {
+          _routeAlternatives = finalRoutes;
+          _roadblocksPerRoute = finalRoadblocks;
+          _aiRecommendation = '⏳ Todas las rutas directas están bloqueadas. Buscando desvíos inteligentes por pueblos intermedios...';
+        });
+      }
+
+      // Buscar pueblos intermedios cercanos a la ruta
+      final waypoints = await _routeService.findIntermediateWaypoints(origin, destCoords);
+      debugPrint('[Ruteando] Waypoints intermedios encontrados: ${waypoints.map((w) => w['name']).toList()}');
+
+      for (var wp in waypoints) {
+        final wpCoords = LatLng(wp['latitude'] as double, wp['longitude'] as double);
+        final wpName = wp['name'] as String;
+
+        final detourRoute = await _routeService.getRouteViaWaypoint(origin, wpCoords, destCoords);
+        if (detourRoute != null) {
+          // Verificar si esta ruta alternativa es realmente diferente de las existentes
+          final detourPolyline = detourRoute['polyline'] as List<LatLng>;
+          final bool isDuplicate = finalRoutes.any((existingRoute) {
+            final existingPoly = existingRoute['polyline'] as List<LatLng>;
+            // Compare midpoints — if they're very close, routes are likely the same
+            if (existingPoly.isEmpty || detourPolyline.isEmpty) return false;
+            final existingMid = existingPoly[existingPoly.length ~/ 2];
+            final detourMid = detourPolyline[detourPolyline.length ~/ 2];
+            return RouteUtils.calculateDistance(existingMid, detourMid) < 2.0; // < 2km apart = duplicate
+          });
+
+          if (!isDuplicate) {
+            // Etiquetar la ruta con el nombre del pueblo por donde pasa
+            detourRoute['summary'] = 'Desvío vía $wpName';
+            detourRoute['is_detour'] = true;
+
+            // Detectar bloqueos en esta ruta alternativa
+            final detourCollisions = RouteUtils.detectRoadblockCollisions(detourPolyline, _activeRoadblocks);
+
+            finalRoutes.add(detourRoute);
+            finalRoadblocks.add(detourCollisions);
+
+            debugPrint('[Ruteando] Desvío vía $wpName: ${detourRoute['distance_km']}km, ${detourCollisions.length} bloqueos');
+          }
+        }
+      }
+
+      // Reordenar: rutas libres primero, luego bloqueadas
+      final combined = List.generate(finalRoutes.length, (i) => {
+        'route': finalRoutes[i],
+        'blocks': finalRoadblocks[i],
+      });
+      combined.sort((a, b) {
+        final aBlocked = (a['blocks'] as List).isNotEmpty ? 1 : 0;
+        final bBlocked = (b['blocks'] as List).isNotEmpty ? 1 : 0;
+        return aBlocked.compareTo(bBlocked);
+      });
+
+      finalRoutes = combined.map((c) => c['route'] as Map<String, dynamic>).toList();
+      finalRoadblocks = combined.map((c) => c['blocks'] as List<Map<String, dynamic>>).toList();
+    }
+
     if (!mounted) return;
 
     setState(() {
-      _routeAlternatives = routes;
-      _roadblocksPerRoute = roadblocksPerRoute;
+      _routeAlternatives = finalRoutes;
+      _roadblocksPerRoute = finalRoadblocks;
       _isLoadingRoutes = false;
+      _selectedRouteIndex = 0;
     });
 
-    // Fit map to show the entire calculated polyline
-    if (routes.isNotEmpty) {
-      _fitMapToRoute(routes[0]['polyline'] as List<LatLng>);
+    // Fit map to show the first (best) route
+    if (finalRoutes.isNotEmpty) {
+      _fitMapToRoute(finalRoutes[0]['polyline'] as List<LatLng>);
     }
 
     // AI Safety Analysis
@@ -239,8 +312,8 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
       final advice = await _geminiService.analyzeRouteSafety(
         origin: _originName,
         destination: _destinationName,
-        routeAlternatives: routes,
-        roadblocksPerRoute: roadblocksPerRoute,
+        routeAlternatives: finalRoutes,
+        roadblocksPerRoute: finalRoadblocks,
       );
       if (mounted) {
         setState(() {
@@ -392,7 +465,7 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
               // Draw polylines for route alternatives
               if (_routeAlternatives.isNotEmpty)
                 PolylineLayer(
-                  polylines: List.generate(_routeAlternatives.length, (index) {
+                  polylines: List<Polyline<Object>>.generate(_routeAlternatives.length, (index) {
                     final route = _routeAlternatives[index];
                     final roadblocks = _roadblocksPerRoute[index];
                     final bool isSelected = index == _selectedRouteIndex;
@@ -405,14 +478,12 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
                       routeColor = isSelected ? AppTheme.positive : AppTheme.positive.withOpacity(0.35);
                     }
 
-                    return Polyline(
+                    return Polyline<Object>(
                       points: route['polyline'] as List<LatLng>,
                       color: routeColor,
                       strokeWidth: isSelected ? 6.5 : 3.5,
-                      isOutline: isSelected,
-                      outlineColor: Colors.white.withOpacity(0.8),
-                      borderColor: Colors.white,
-                      borderStrokeWidth: 1.5,
+                      borderColor: isSelected ? Colors.white.withOpacity(0.8) : Colors.transparent,
+                      borderStrokeWidth: isSelected ? 1.5 : 0.0,
                     );
                   }),
                 ),
@@ -875,6 +946,8 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
                                     ? '${(mins / 60).floor()}h ${(mins % 60).round()}m'
                                     : '${mins.round()} min';
 
+                                final bool isDetour = route['is_detour'] == true;
+
                                 return GestureDetector(
                                   onTap: () {
                                     setState(() {
@@ -924,8 +997,12 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
                                               ),
                                             ),
                                             Icon(
-                                              hasBlocks ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded,
-                                              color: hasBlocks ? AppTheme.warning : AppTheme.positive,
+                                              isDetour
+                                                  ? Icons.alt_route_rounded
+                                                  : (hasBlocks ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded),
+                                              color: isDetour
+                                                  ? AppTheme.climate
+                                                  : (hasBlocks ? AppTheme.warning : AppTheme.positive),
                                               size: 16,
                                             ),
                                           ],
@@ -934,13 +1011,31 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
                                           '${km.toStringAsFixed(1)} km · $timeString',
                                           style: const TextStyle(fontSize: 12, color: Colors.grey),
                                         ),
-                                        Text(
-                                          hasBlocks ? '${blocks.length} bloqueos' : 'Transitable',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: hasBlocks ? AppTheme.danger : AppTheme.positive,
-                                          ),
+                                        Row(
+                                          children: [
+                                            if (isDetour) ...[
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                margin: const EdgeInsets.only(right: 6),
+                                                decoration: BoxDecoration(
+                                                  color: AppTheme.climate.withOpacity(0.15),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Text(
+                                                  'DESVÍO',
+                                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: AppTheme.climate),
+                                                ),
+                                              ),
+                                            ],
+                                            Text(
+                                              hasBlocks ? '${blocks.length} bloqueos' : 'Transitable',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                                color: hasBlocks ? AppTheme.danger : AppTheme.positive,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
