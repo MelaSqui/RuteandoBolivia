@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -90,5 +91,69 @@ INSTRUCCIONES:
       Content('user', [TextPart(systemPrompt)]),
       Content('model', [TextPart('¡Entendido! Soy Ruteando AI y estoy listo para ayudar al viajero con información precisa y actualizada.')]),
     ]);
+  }
+
+  /// Verifies an image with Gemini AI to determine if it represents a valid road incident.
+  Future<Map<String, dynamic>> verifyImage(Uint8List bytes, String mimeType) async {
+    try {
+      final prompt = '''
+Analiza esta imagen para un reporte de transitabilidad y estado de carreteras en Bolivia.
+Debes responder ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
+{
+  "is_valid": true o false,
+  "confidence": un número de 0 a 100 indicando la seguridad de tu análisis,
+  "category": "Bloqueo", "Accidente", "Estado de Ruta", "Clima" o "Desconocido",
+  "reason": "Una breve explicación en español de lo que detectaste (máximo 15 palabras)."
+}
+
+Reglas de validación:
+- "is_valid" debe ser true solo si la imagen muestra una carretera, calle, ruta, vehículo accidentado, bloqueo de carreteras, baches, deslizamiento de tierra, derrumbe, inundación, clima extremo que afecte el tránsito vial, o señalización de tráfico.
+- Si la imagen muestra selfies, caras de personas de cerca, comida, interiores de viviendas, memes, capturas de pantalla de chats o texto no relacionado, animales sin relación a la vía, etc., "is_valid" debe ser false.
+- Sé estricto para evitar spam.
+''';
+
+      final response = await _model.generateContent([
+        Content.multi([
+          TextPart(prompt),
+          DataPart(mimeType, bytes),
+        ])
+      ]);
+
+      final responseText = response.text;
+      if (responseText == null) {
+        return {
+          'is_valid': false,
+          'confidence': 0.0,
+          'category': 'Desconocido',
+          'reason': 'No se obtuvo respuesta del modelo de IA.'
+        };
+      }
+
+      // Limpiar posibles bloques de código markdown si los hay (e.g. ```json ... ```)
+      String cleanJson = responseText.trim();
+      if (cleanJson.startsWith('```json')) {
+        cleanJson = cleanJson.substring(7);
+      }
+      if (cleanJson.endsWith('```')) {
+        cleanJson = cleanJson.substring(0, cleanJson.length - 3);
+      }
+      cleanJson = cleanJson.trim();
+
+      final parsed = jsonDecode(cleanJson) as Map<String, dynamic>;
+      return {
+        'is_valid': parsed['is_valid'] ?? false,
+        'confidence': (parsed['confidence'] as num?)?.toDouble() ?? 0.0,
+        'category': parsed['category'] ?? 'Desconocido',
+        'reason': parsed['reason'] ?? 'Sin descripción.',
+      };
+    } catch (e) {
+      print('Error in Gemini Image Verification: \$e');
+      return {
+        'is_valid': false,
+        'confidence': 0.0,
+        'category': 'Desconocido',
+        'reason': 'Error al procesar la verificación con IA: \$e'
+      };
+    }
   }
 }

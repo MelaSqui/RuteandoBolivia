@@ -79,54 +79,112 @@ class _AnimatedPhotoCardState extends State<AnimatedPhotoCard>
             width: 1.5,
           ),
         ),
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    widget.photo.icon,
-                    size: 32,
-                    color: widget.photo.tintColor,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15),
+          child: Stack(
+            children: [
+              if (widget.photo.imageBytes != null) ...[
+                Positioned.fill(
+                  child: Image.memory(
+                    widget.photo.imageBytes!,
+                    fit: BoxFit.cover,
                   ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      widget.photo.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextSecondary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
+                ),
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.35),
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.45),
+                        ],
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            Positioned(
-              top: 6,
-              right: 6,
-              child: InteractiveScale(
-                onTap: _handleDelete,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.black54,
-                    shape: BoxShape.circle,
+                ),
+              ] else
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        widget.photo.icon,
+                        size: 32,
+                        color: widget.photo.tintColor,
+                      ),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          widget.photo.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextSecondary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Icon(
-                    Icons.close,
-                    size: 14,
-                    color: Colors.white,
+                ),
+              if (widget.photo.isVerified)
+                Positioned(
+                  bottom: 6,
+                  left: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.positive.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24, width: 0.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.verified,
+                          size: 10,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'IA ${widget.photo.aiConfidence.toInt()}%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: InteractiveScale(
+                  onTap: _handleDelete,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

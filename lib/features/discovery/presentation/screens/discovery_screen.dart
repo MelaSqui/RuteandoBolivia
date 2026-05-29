@@ -7,6 +7,7 @@ import '../../data/repositories/discovery_repository.dart';
 import '../../data/services/gemini_service.dart';
 import '../../domain/entities/tourist_destination.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:ruteando_bolivia/theme/app_theme.dart';
 class DiscoveryScreen extends StatefulWidget {
   final VoidCallback onNavigateToMap;
 
@@ -180,9 +181,21 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0D1117) : const Color(0xFFF6F8FB),
-      body: SafeArea(
-        child: RefreshIndicator(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: isDark ? AppTheme.darkBackground : AppTheme.lightBackground),
+          Positioned.fill(
+            child: Opacity(
+              opacity: isDark ? 0.65 : 0.45,
+              child: Image.asset(
+                isDark ? 'assets/patterns/oscuro.png' : 'assets/patterns/claro.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          SafeArea(
+            child: RefreshIndicator(
           onRefresh: _fetchData,
           color: theme.colorScheme.primary,
           child: CustomScrollView(
@@ -323,6 +336,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
           ),
         ),
       ),
+        ],
+      ),
     );
   }
 
@@ -339,16 +354,51 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Ruteando Bolivia',
-                      style: theme.textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -1,
-                        height: 1.1,
-                        color: isDark ? Colors.white : const Color(0xFF0D1117),
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                theme.colorScheme.primary,
+                                theme.colorScheme.primary.withOpacity(0.7),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.primary.withOpacity(0.35),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.route_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Ruteando Bolivia',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.positive,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 12),
                     Text(
                       'Explora destinos turísticos y conoce el estado de las carreteras en tiempo real',
                       style: theme.textTheme.bodyMedium?.copyWith(
