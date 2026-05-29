@@ -4,6 +4,7 @@ import 'package:ruteando_bolivia/features/alerts/presentation/screens/alerts_scr
 import 'package:ruteando_bolivia/features/reports/presentation/screens/reports_screen.dart';
 import 'package:ruteando_bolivia/features/profile/presentation/screens/profile_screen.dart';
 import 'package:ruteando_bolivia/features/discovery/presentation/screens/discovery_screen.dart';
+import 'package:ruteando_bolivia/features/routes/presentation/screens/routes_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,14 +21,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       DiscoveryScreen(
         onNavigateToMap: () {
-          setState(() {
-            _currentIndex = 3; // Redirige a la pestaña de la Red Vial / Rutas (donde ahora está el Mapa)
-          });
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const MapaTransitabilidad()),
+          );
         },
       ),
       const AlertsScreen(),
       const ReportsScreen(),
-      const MapaTransitabilidad(), // El mapa real interactivo ahora está en la pestaña "Rutas"
+      const RoutesScreen(),
       const ProfileScreen(),
     ];
 
@@ -37,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Asegura que se muestren las 5 opciones fijas
+        type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey,

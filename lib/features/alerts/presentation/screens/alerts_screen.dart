@@ -213,30 +213,45 @@ class _AppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
       child: Row(
         children: [
-          Icon(Icons.menu_rounded, color: AppTheme.positive, size: 26),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  theme.colorScheme.primary,
+                  theme.colorScheme.primary.withOpacity(0.7),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.route_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
           const SizedBox(width: 12),
           Text(
-            'RuteandoBolivia',
+            'Ruteando Bolivia',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: AppTheme.positive,
             ),
           ),
           const Spacer(),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: isDark
-                ? AppTheme.darkCard
-                : AppTheme.lightBorder,
-            child: Icon(
-              Icons.person_rounded,
-              size: 20,
-              color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-            ),
-          ),
         ],
       ),
     );
@@ -263,7 +278,7 @@ class _SearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
