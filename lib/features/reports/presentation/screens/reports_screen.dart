@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
 import 'package:ruteando_bolivia/features/reports/domain/models/report_category.dart';
 import 'package:ruteando_bolivia/features/reports/domain/models/mock_photo.dart';
@@ -418,7 +419,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     });
   }
 
-  void _submitReport() {
+  Future<void> _submitReport() async {
     if (_selectedCategoryIndex == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -439,8 +440,62 @@ class _ReportsScreenState extends State<ReportsScreen>
       _isSubmitting = true;
     });
 
-    // Simular el envio con una respuesta tactil y visual
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    try {
+      final categoryLabel = _categories[_selectedCategoryIndex!].label;
+      final description = _descriptionController.text.trim();
+      final now = DateTime.now().toIso8601String();
+
+      // Parse department from location name
+      final locationName = _detectedLocationName;
+      String departamento = 'La Paz';
+      final deptos = ['La Paz', 'Cochabamba', 'Santa Cruz', 'Oruro', 'Potosi', 'Potosí', 'Tarija', 'Beni', 'Pando', 'Chuquisaca'];
+      for (var dep in deptos) {
+        if (locationName.toLowerCase().contains(dep.toLowerCase())) {
+          departamento = dep;
+          break;
+        }
+      }
+
+      String ruta = 'Local';
+      final routeRegExp = RegExp(r'(?:ruta|rn|r|n)\s*([0-9]+)', caseSensitive: false);
+      final match = routeRegExp.firstMatch(locationName);
+      if (match != null) {
+        ruta = match.group(1) ?? 'Local';
+      } else {
+        final numRegExp = RegExp(r'\b([0-9]{1,2})\b');
+        final numMatch = numRegExp.firstMatch(locationName);
+        if (numMatch != null) {
+          ruta = numMatch.group(1) ?? 'Local';
+        }
+      }
+
+      final Map<String, dynamic> rawDataMap = {
+        'inicio_seccion': locationName,
+        'fin_seccion': locationName,
+        'descr_sector': 'Reporte de Usuario',
+        'categoria_ia': categoryLabel,
+        'descripcion_usuario': description,
+      };
+
+      final Map<String, dynamic> insertData = {
+        'ruta': ruta,
+        'departamento': departamento,
+        'evento': '$categoryLabel: $description',
+        'restriccion_vehicular': categoryLabel == 'Bloqueo'
+            ? 'NO CIRCULAR'
+            : (categoryLabel == 'Accidente' ? 'TRANSITO CON PRECAUCION' : 'PRECAUCION'),
+        'transitable_con_desvio': 'NO',
+        'trabajos_conservacion': 'NINGUNO',
+        'latitud_inicio': _latitude ?? -16.2902,
+        'longitud_inicio': _longitude ?? -63.5887,
+        'hora_reporte': now,
+        'raw_data': rawDataMap,
+      };
+
+      await Supabase.instance.client
+          .from('road_events')
+          .insert(insertData);
+
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
@@ -455,7 +510,20 @@ class _ReportsScreenState extends State<ReportsScreen>
 
       // Mostrar bottom sheet de exito con animacion
       _showSuccessSheet();
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al enviar el reporte: $e'),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   void _showSuccessSheet() {
