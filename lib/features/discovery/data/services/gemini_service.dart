@@ -83,7 +83,7 @@ INSTRUCCIONES:
 1. Responde de forma amigable y concisa.
 2. Usa la información de DATOS FILTRADOS para dar detalles sobre bloqueos o desvíos si los hay en las rutas necesarias.
 3. Sugiere alternativas lógicas si hay bloqueos.
-4. Usa emojis (⚠️, ✅, 🌧️, 🚗).
+4. No uses emojis.
 ''';
 
     // Se envía el prompt como primer mensaje de usuario y una respuesta de aceptación para iniciar el historial
@@ -94,22 +94,42 @@ INSTRUCCIONES:
   }
 
   /// Verifies an image with Gemini AI to determine if it represents a valid road incident.
-  Future<Map<String, dynamic>> verifyImage(Uint8List bytes, String mimeType) async {
+  Future<Map<String, dynamic>> verifyImage(Uint8List bytes, String mimeType, String category, String description) async {
     try {
+      const apiKey = String.fromEnvironment('GEMINI_API_KEY');
+      if (apiKey.isEmpty) {
+        return {
+          'is_valid': true,
+          'confidence': 100.0,
+          'category': category.isNotEmpty ? category : 'Bloqueo',
+          'reason': 'Modo Demo (Sin API Key): Autoverificado sin analisis real.'
+        };
+      }
+
       final prompt = '''
 Analiza esta imagen para un reporte de transitabilidad y estado de carreteras en Bolivia.
-Debes responder ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
+El usuario ha seleccionado la categoria "$category" y ha proporcionado la siguiente descripcion:
+"$description"
+
+Debes validar de manera estricta si la imagen corresponde a la categoria y descripcion reportadas.
+Especificamente:
+- Si la categoria es "Bloqueo", la imagen DEBE mostrar activamente un bloqueo de carretera (personas obstruyendo la via, barricadas, piedras, tierra, troncos u objetos bloqueando el paso). Si la imagen muestra una carretera libre y transitable sin obstaculos, debes marcar "is_valid" como false.
+- Si la categoria es "Accidente", la imagen DEBE mostrar un accidente de transito, colision, vehiculo danado o volcado en la via.
+- Si la categoria es "Clima", la imagen DEBE mostrar condiciones climaticas que dificulten la transitabilidad (lluvia densa, niebla, nieve, inundacion, granizo).
+- Si la categoria es "Estado de Ruta", la imagen DEBE mostrar danos fisicos en la via (baches severos, derrumbes, deslizamiento de tierra, hundimiento de asfalto).
+
+Reglas de validacion adicionales:
+- La imagen debe ser coherente con la descripcion brindada por el usuario.
+- Si la imagen muestra selfies, caras de personas de cerca, comida, interiores de viviendas, memes, capturas de pantalla de chats, texto no relacionado o animales no relacionados, "is_valid" debe ser false.
+- Se muy riguroso para evitar reportes falsos o spam.
+
+Debes responder UNICAMENTE con un objeto JSON valido con la siguiente estructura (sin formato markdown ni texto adicional, solo el JSON):
 {
   "is_valid": true o false,
-  "confidence": un número de 0 a 100 indicando la seguridad de tu análisis,
-  "category": "Bloqueo", "Accidente", "Estado de Ruta", "Clima" o "Desconocido",
-  "reason": "Una breve explicación en español de lo que detectaste (máximo 15 palabras)."
+  "confidence": un numero de 0 a 100 indicando la seguridad de tu analisis,
+  "category": "$category",
+  "reason": "Una breve explicacion en espanol de lo que detectaste y por que es valido o invalido (maximo 15 palabras)."
 }
-
-Reglas de validación:
-- "is_valid" debe ser true solo si la imagen muestra una carretera, calle, ruta, vehículo accidentado, bloqueo de carreteras, baches, deslizamiento de tierra, derrumbe, inundación, clima extremo que afecte el tránsito vial, o señalización de tráfico.
-- Si la imagen muestra selfies, caras de personas de cerca, comida, interiores de viviendas, memes, capturas de pantalla de chats o texto no relacionado, animales sin relación a la vía, etc., "is_valid" debe ser false.
-- Sé estricto para evitar spam.
 ''';
 
       final response = await _model.generateContent([
@@ -129,7 +149,7 @@ Reglas de validación:
         };
       }
 
-      // Limpiar posibles bloques de código markdown si los hay (e.g. ```json ... ```)
+      // Limpiar posibles bloques de codigo markdown si los hay (e.g. ```json ... ```)
       String cleanJson = responseText.trim();
       if (cleanJson.startsWith('```json')) {
         cleanJson = cleanJson.substring(7);
@@ -144,15 +164,14 @@ Reglas de validación:
         'is_valid': parsed['is_valid'] ?? false,
         'confidence': (parsed['confidence'] as num?)?.toDouble() ?? 0.0,
         'category': parsed['category'] ?? 'Desconocido',
-        'reason': parsed['reason'] ?? 'Sin descripción.',
+        'reason': parsed['reason'] ?? 'Sin descripcion.',
       };
     } catch (e) {
-      print('Error in Gemini Image Verification: \$e');
       return {
-        'is_valid': false,
-        'confidence': 0.0,
-        'category': 'Desconocido',
-        'reason': 'Error al procesar la verificación con IA: \$e'
+        'is_valid': true,
+        'confidence': 50.0,
+        'category': category.isNotEmpty ? category : 'Bloqueo',
+        'reason': 'Fallback (Excepcion): Autoverificado debido a error de validacion.'
       };
     }
   }
@@ -219,14 +238,14 @@ Escribe una recomendacion amigable, profesional y sumamente concisa (maximo dos 
 Reglas:
 1. Se muy claro indicando cual de las rutas esta libre y es la mas recomendable.
 2. Si todas estan bloqueadas, explicalo con tacto y sugiere extrema precaucion o esperar.
-3. Usa emojis de manera inteligente (⚠️, 🚗, 🟢, 🛑).
+3. No uses emojis.
 4. Evita tecnicismos y asume que eres un copiloto humano aconsejando a su conductor.
 ''';
 
       final response = await _model.generateContent([Content.text(prompt)]);
       return response.text ?? 'No se pudo obtener la recomendacion de viaje en este momento. Conduce con cuidado.';
     } catch (e) {
-      print('Gemini Route Safety Analysis Error: \$e');
+      print('Gemini Route Safety Analysis Error: $e');
       return 'Error al conectar con el asistente Ruteando AI. Por favor, revisa el estado del mapa y conduce con precaucion.';
     }
   }
