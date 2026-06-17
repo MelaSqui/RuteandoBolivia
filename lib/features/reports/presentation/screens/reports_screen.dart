@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:ruteando_bolivia/features/routes/utils/route_utils.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
 import 'package:ruteando_bolivia/features/reports/domain/models/report_category.dart';
 import 'package:ruteando_bolivia/features/reports/domain/models/mock_photo.dart';
@@ -13,7 +15,7 @@ import 'package:ruteando_bolivia/features/reports/presentation/widgets/interacti
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/category_chip.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/animated_photo_card.dart';
 import 'package:ruteando_bolivia/features/reports/presentation/widgets/add_photo_card.dart';
-import 'package:ruteando_bolivia/features/discovery/data/services/gemini_service.dart';
+import 'package:ruteando_bolivia/features/reports/presentation/widgets/ai_verification_dialog.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -29,7 +31,6 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   int? _selectedCategoryIndex;
   bool _isSubmitting = false;
-  bool _isGeminiApiKeyMissing = false;
 
   late AnimationController _animController;
   late Animation<double> _fadeIn;
@@ -81,18 +82,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward();
     _requestGpsLocation();
-    _checkApiKey();
   }
 
-  void _checkApiKey() {
-    const apiKey = String.fromEnvironment('GEMINI_API_KEY');
-    if (apiKey.isEmpty) {
-      setState(() {
-        _isGeminiApiKeyMissing = true;
-      });
-      debugPrint('WARNING: GEMINI_API_KEY no esta configurada.');
-    }
-  }
 
   @override
   void dispose() {
@@ -141,20 +132,70 @@ class _ReportsScreenState extends State<ReportsScreen>
         return;
       }
 
-      final Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      Position? position;
 
-      _latitude = position.latitude;
-      _longitude = position.longitude;
+      // 1. Intentar obtener la última ubicación conocida (es casi instantáneo)
+      try {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null) {
+          position = lastKnown;
+          _latitude = lastKnown.latitude;
+          _longitude = lastKnown.longitude;
+          setState(() {
+            _hasGpsPermission = true;
+            _detectedLocationName = 'Ubicación rápida obtenida. Actualizando...';
+          });
+          _reverseGeocode(_latitude!, _longitude!);
+        }
+      } catch (e) {
+        debugPrint('Error obteniendo last known position: $e');
+      }
 
-      setState(() {
-        _hasGpsPermission = true;
-        _isGpsLoading = false;
-        _detectedLocationName = 'Buscando dirección de la vía...';
-      });
+      // 2. Intentar obtener la ubicación actual con alta precisión (GPS) y un tiempo límite corto
+      try {
+        final currentPosition = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 6),
+        );
+        position = currentPosition;
+      } catch (e) {
+        debugPrint('Error/Timeout con precisión alta: $e. Intentando precisión baja/red...');
+        // 3. Si falla/da timeout (por estar en interiores), intentar con precisión baja (red/wifi)
+        try {
+          final networkPosition = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low,
+            timeLimit: const Duration(seconds: 4),
+          );
+          position = networkPosition;
+        } catch (innerE) {
+          debugPrint('Error/Timeout también con precisión baja: $innerE');
+        }
+      }
 
-      _reverseGeocode(_latitude!, _longitude!);
+      if (position != null) {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+
+        setState(() {
+          _hasGpsPermission = true;
+          _isGpsLoading = false;
+          _detectedLocationName = 'Buscando dirección de la vía...';
+        });
+
+        _reverseGeocode(_latitude!, _longitude!);
+      } else {
+        // Si no se obtuvo ninguna ubicación
+        setState(() {
+          _isGpsLoading = false;
+          if (_latitude != null && _longitude != null) {
+            // Mantener la última conocida si existe
+            _detectedLocationName = 'Dirección basada en última ubicación conocida...';
+            _reverseGeocode(_latitude!, _longitude!);
+          } else {
+            _detectedLocationName = 'No se pudo obtener señal GPS. Toca para reintentar.';
+          }
+        });
+      }
     } catch (e) {
       setState(() {
         _isGpsLoading = false;
@@ -245,84 +286,9 @@ class _ReportsScreenState extends State<ReportsScreen>
       return;
     }
 
-    final ImageSource? source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final theme = Theme.of(context);
-        final isDark = theme.brightness == Brightness.dark;
-
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-            border: Border.all(
-              color: theme.colorScheme.outline.withOpacity(0.3),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outline.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Text(
-                'Seleccionar evidencia vial',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'La imagen pasara por una validacion de Inteligencia Artificial para evitar spam.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildSourceButton(
-                    context: context,
-                    icon: Icons.camera_alt_rounded,
-                    label: 'Camara',
-                    color: AppTheme.positive,
-                    onTap: () => Navigator.pop(context, ImageSource.camera),
-                  ),
-                  _buildSourceButton(
-                    context: context,
-                    icon: Icons.photo_library_rounded,
-                    label: 'Galeria / PC',
-                    color: AppTheme.climate,
-                    onTap: () => Navigator.pop(context, ImageSource.gallery),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (source == null) return;
-
     try {
       final XFile? image = await _picker.pickImage(
-        source: source,
+        source: ImageSource.camera,
         maxWidth: 1024,
         maxHeight: 1024,
         imageQuality: 80,
@@ -343,7 +309,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al seleccionar imagen: $e'),
+          content: Text('Error al capturar imagen: $e'),
           backgroundColor: AppTheme.danger,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -352,52 +318,12 @@ class _ReportsScreenState extends State<ReportsScreen>
     }
   }
 
-  Widget _buildSourceButton({
-    required BuildContext context,
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return InteractiveScale(
-      onTap: onTap,
-      child: Container(
-        width: 130,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(isDark ? 0.12 : 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: color.withOpacity(isDark ? 0.25 : 0.35),
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 28, color: color),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showVerificationModal(Uint8List imageBytes, String mimeType, String fileName, String category, String description) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        return _AIVerificationDialog(
+        return AIVerificationDialog(
           imageBytes: imageBytes,
           mimeType: mimeType,
           fileName: fileName,
@@ -445,6 +371,134 @@ class _ReportsScreenState extends State<ReportsScreen>
       final description = _descriptionController.text.trim();
       final now = DateTime.now().toIso8601String();
 
+      // 1. Verificar duplicados a menos de 100 metros (0.1 km)
+      final userLat = _latitude;
+      final userLng = _longitude;
+      if (userLat != null && userLng != null) {
+        final userLatLng = LatLng(userLat, userLng);
+        
+        final responseEvents = await Supabase.instance.client
+            .from('road_events')
+            .select('id, evento, latitud_inicio, longitud_inicio, raw_data');
+
+        Map<String, dynamic>? existingConflict;
+        for (final item in responseEvents as List) {
+          final e = item as Map<String, dynamic>;
+          final double? lat = double.tryParse(e['latitud_inicio']?.toString() ?? '');
+          final double? lng = double.tryParse(e['longitud_inicio']?.toString() ?? '');
+          if (lat == null || lng == null) continue;
+
+          final rawData = e['raw_data'];
+          Map<String, dynamic>? raw;
+          if (rawData is Map<String, dynamic>) {
+            raw = rawData;
+          } else if (rawData is String) {
+            try {
+              raw = jsonDecode(rawData) as Map<String, dynamic>;
+            } catch (_) {}
+          }
+
+          final sigue = int.tryParse(raw?['votos_sigue']?.toString() ?? '0') ?? 0;
+          final despejado = int.tryParse(raw?['votos_despejado']?.toString() ?? '0') ?? 0;
+          final isActive = !(despejado >= 1 && despejado > sigue);
+          if (!isActive) continue;
+
+          final dist = RouteUtils.calculateDistance(userLatLng, LatLng(lat, lng));
+          if (dist <= 0.1) { // 100 metros
+            existingConflict = e;
+            break;
+          }
+        }
+
+        if (existingConflict != null) {
+          if (!mounted) return;
+          setState(() {
+            _isSubmitting = false;
+          });
+
+          final rawData = existingConflict['raw_data'];
+          Map<String, dynamic>? raw;
+          if (rawData is Map<String, dynamic>) {
+            raw = rawData;
+          } else if (rawData is String) {
+            try {
+              raw = jsonDecode(rawData) as Map<String, dynamic>;
+            } catch (_) {}
+          }
+          final String existingCategory = raw?['categoria_ia']?.toString() ?? 'Incidente vial';
+          final String existingDescription = existingConflict['evento'] ?? 'Incidente vial activo';
+
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: AppTheme.warning, size: 28),
+                  SizedBox(width: 12),
+                  Text('Reporte Duplicado'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ya existe un reporte de tipo "$existingCategory" registrado a menos de 100 metros de tu ubicación actual:',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      existingDescription,
+                      style: const TextStyle(
+                        fontStyle: FontStyle.italic,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Para evitar duplicar pines e interferir en la lectura del mapa, no se permite crear otro reporte en esta misma zona. Puedes apoyar o votar sobre la vigencia de esta alerta desde el mapa principal o la lista de alertas.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              actions: [
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.positive,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Entendido'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+      }
+
+      // Obtener la descripcion reformulada por la IA si existe en alguna foto verificada
+      String? reformulatedDescription;
+      for (final photo in _selectedPhotos) {
+        if (photo.description != null && photo.description!.trim().isNotEmpty) {
+          reformulatedDescription = photo.description!.trim();
+          break;
+        }
+      }
+
+      final String finalEventDescription = reformulatedDescription ?? description;
+
       // Parse department from location name
       final locationName = _detectedLocationName;
       String departamento = 'La Paz';
@@ -475,12 +529,14 @@ class _ReportsScreenState extends State<ReportsScreen>
         'descr_sector': 'Reporte de Usuario',
         'categoria_ia': categoryLabel,
         'descripcion_usuario': description,
+        if (reformulatedDescription != null)
+          'descripcion_reformulada': reformulatedDescription,
       };
 
       final Map<String, dynamic> insertData = {
         'ruta': ruta,
         'departamento': departamento,
-        'evento': '$categoryLabel: $description',
+        'evento': '$categoryLabel: $finalEventDescription',
         'restriccion_vehicular': categoryLabel == 'Bloqueo'
             ? 'NO CIRCULAR'
             : (categoryLabel == 'Accidente' ? 'TRANSITO CON PRECAUCION' : 'PRECAUCION'),
@@ -495,6 +551,28 @@ class _ReportsScreenState extends State<ReportsScreen>
       await Supabase.instance.client
           .from('road_events')
           .insert(insertData);
+
+      // Incrementar el conteo de reportes en el perfil del usuario
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser != null) {
+        try {
+          final profileRes = await Supabase.instance.client
+              .from('profiles')
+              .select('reports_count')
+              .eq('id', currentUser.id)
+              .maybeSingle();
+
+          if (profileRes != null) {
+            final int currentCount = (profileRes['reports_count'] as num?)?.toInt() ?? 0;
+            await Supabase.instance.client
+                .from('profiles')
+                .update({'reports_count': currentCount + 1})
+                .eq('id', currentUser.id);
+          }
+        } catch (profileError) {
+          debugPrint('Error updating user reports count: $profileError');
+        }
+      }
 
       if (!mounted) return;
       setState(() {
@@ -1243,376 +1321,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         ],
       ),
     );
+
   }
 }
 
-class _AIVerificationDialog extends StatefulWidget {
-  final Uint8List imageBytes;
-  final String mimeType;
-  final String fileName;
-  final String category;
-  final String description;
-  final Function(MockPhoto) onSuccess;
-
-  const _AIVerificationDialog({
-    required this.imageBytes,
-    required this.mimeType,
-    required this.fileName,
-    required this.category,
-    required this.description,
-    required this.onSuccess,
-  });
-
-  @override
-  State<_AIVerificationDialog> createState() => _AIVerificationDialogState();
-}
-
-class _AIVerificationDialogState extends State<_AIVerificationDialog>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _scannerController;
-  String _statusMessage = 'Inicializando verificacion...';
-  bool _isChecking = true;
-  bool _isValid = false;
-  double _confidence = 0.0;
-  String _reason = '';
-  String _category = 'Desconocido';
-
-  final List<String> _loadingMessages = [
-    'Conectando con Ruteando AI...',
-    'Analizando composicion de imagen...',
-    'Buscando elementos de infraestructura vial...',
-    'Evaluando relevancia de obstrucciones o da;os...',
-    'Comprobando integridad y descartando spam...',
-    'Finalizando analisis de evidencia...',
-  ];
-  int _messageIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _scannerController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-
-    _startMessageRotation();
-    _performVerification();
-  }
-
-  void _startMessageRotation() {
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(milliseconds: 1800));
-      if (!mounted || !_isChecking) return false;
-      setState(() {
-        _messageIndex = (_messageIndex + 1) % _loadingMessages.length;
-        _statusMessage = _loadingMessages[_messageIndex];
-      });
-      return true;
-    });
-  }
-
-  Future<void> _performVerification() async {
-    final startTime = DateTime.now();
-
-    final result = await GeminiService().verifyImage(
-      widget.imageBytes,
-      widget.mimeType,
-      widget.category,
-      widget.description,
-    );
-
-    final elapsed = DateTime.now().difference(startTime);
-    if (elapsed.inMilliseconds < 2200) {
-      await Future.delayed(Duration(milliseconds: 2200 - elapsed.inMilliseconds));
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _isChecking = false;
-      _isValid = result['is_valid'] ?? false;
-      _confidence = result['confidence'] ?? 0.0;
-      _reason = result['reason'] ?? 'Sin descripcion de la IA.';
-      _category = result['category'] ?? 'Desconocido';
-    });
-
-    if (_isValid) {
-      await Future.delayed(const Duration(milliseconds: 1200));
-      if (!mounted) return;
-
-      Color tintColor = const Color(0xFF38BDF8);
-      IconData icon = Icons.image_outlined;
-
-      switch (_category) {
-        case 'Bloqueo':
-          tintColor = AppTheme.warning;
-          icon = Icons.alt_route_rounded;
-          break;
-        case 'Accidente':
-          tintColor = AppTheme.danger;
-          icon = Icons.report_problem_rounded;
-          break;
-        case 'Clima':
-          tintColor = AppTheme.climate;
-          icon = Icons.cloud_queue_rounded;
-          break;
-        case 'Estado de Ruta':
-          tintColor = AppTheme.caution;
-          icon = Icons.broken_image_rounded;
-          break;
-      }
-
-      final verifiedPhoto = MockPhoto(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: widget.fileName,
-        tintColor: tintColor,
-        icon: icon,
-        imageBytes: widget.imageBytes,
-        isVerified: true,
-        aiConfidence: _confidence,
-        aiReason: _reason,
-      );
-
-      Navigator.pop(context);
-      widget.onSuccess(verifiedPhoto);
-    }
-  }
-
-  @override
-  void dispose() {
-    _scannerController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Container(
-          width: 320,
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard.withOpacity(0.9) : AppTheme.lightCard.withOpacity(0.95),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(
-              color: isDark ? Colors.white12 : Colors.black12,
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_isChecking) ...[
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: AppTheme.climate.withOpacity(0.5),
-                          width: 2,
-                        ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: Image.memory(
-                          widget.imageBytes,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    AnimatedBuilder(
-                      animation: _scannerController,
-                      builder: (context, child) {
-                        return Positioned(
-                          top: 4 + (_scannerController.value * 128),
-                          left: 4,
-                          right: 4,
-                          child: Container(
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: AppTheme.climate,
-                              borderRadius: BorderRadius.circular(2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppTheme.climate.withOpacity(0.8),
-                                  blurRadius: 10,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppTheme.climate, width: 1.5),
-                      ),
-                      child: const Icon(
-                        Icons.psychology_outlined,
-                        size: 24,
-                        color: AppTheme.climate,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Verificando Evidencia',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 36,
-                  child: Text(
-                    _statusMessage,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    color: AppTheme.climate,
-                  ),
-                ),
-              ] else if (_isValid) ...[
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: AppTheme.positive.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.verified_rounded,
-                    size: 56,
-                    color: AppTheme.positive,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  '¡Evidencia Aprobada!',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.positive,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Confianza de la IA: ${_confidence.toInt()}%',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _reason,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: AppTheme.danger.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.gpp_bad_outlined,
-                    size: 56,
-                    color: AppTheme.danger,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Imagen No Admitida',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.danger,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'El motor de IA determino que esta imagen no corresponde a un reporte vial de transitabilidad.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-                  ),
-                ),
-                if (_reason.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'Razon IA: $_reason',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontStyle: FontStyle.italic,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                InteractiveScale(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.danger,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Entendido',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

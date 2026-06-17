@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 
 class GeminiService {
   static GeminiService? _instance;
@@ -93,11 +94,19 @@ INSTRUCCIONES:
     ]);
   }
 
-  /// Verifies an image with Gemini AI to determine if it represents a valid road incident.
-  Future<Map<String, dynamic>> verifyImage(Uint8List bytes, String mimeType, String category, String description) async {
+  /// Verifies an image with Gemini AI, falling back to Groq Llama 3.2 Vision if Gemini fails or is not configured.
+  Future<Map<String, dynamic>> verifyImage(
+      Uint8List bytes, String mimeType, String category, String description,
+      {Map<String, String>? exifMetadata}) async {
     try {
       const apiKey = String.fromEnvironment('GEMINI_API_KEY');
       if (apiKey.isEmpty) {
+        // Intentar usar Groq de frente si está configurada la llave
+        const groqKey = String.fromEnvironment('GROQ_API_KEY');
+        if (groqKey.isNotEmpty) {
+          return await _verifyImageWithGroq(bytes, mimeType, category, description, exifMetadata: exifMetadata);
+        }
+
         return {
           'is_valid': true,
           'confidence': 100.0,
@@ -106,29 +115,42 @@ INSTRUCCIONES:
         };
       }
 
+      String metadataText = "No disponibles o no detectados (posible imagen guardada, captura de pantalla o modificada).";
+      if (exifMetadata != null && exifMetadata.isNotEmpty) {
+        metadataText = exifMetadata.entries.map((e) => "- ${e.key}: ${e.value}").join('\n');
+      }
+
       final prompt = '''
 Analiza esta imagen para un reporte de transitabilidad y estado de carreteras en Bolivia.
 El usuario ha seleccionado la categoria "$category" y ha proporcionado la siguiente descripcion:
 "$description"
 
+METADATOS DE LA FOTO (EXIF):
+$metadataText
+
 Debes validar de manera estricta si la imagen corresponde a la categoria y descripcion reportadas.
 Especificamente:
-- Si la categoria es "Bloqueo", la imagen DEBE mostrar activamente un bloqueo de carretera (personas obstruyendo la via, barricadas, piedras, tierra, troncos u objetos bloqueando el paso). Si la imagen muestra una carretera libre y transitable sin obstaculos, debes marcar "is_valid" como false.
-- Si la categoria es "Accidente", la imagen DEBE mostrar un accidente de transito, colision, vehiculo danado o volcado en la via.
-- Si la categoria es "Clima", la imagen DEBE mostrar condiciones climaticas que dificulten la transitabilidad (lluvia densa, niebla, nieve, inundacion, granizo).
-- Si la categoria es "Estado de Ruta", la imagen DEBE mostrar danos fisicos en la via (baches severos, derrumbes, deslizamiento de tierra, hundimiento de asfalto).
+- Si la categoria es "Bloqueo", la imagen DEBE mostrar activamente un bloqueo de carretera (personas obstruyendo la via, barricadas, piedras, tierra, troncos u objetos bloqueando el paso). Un trafico urbano pesado o semaforos en rojo NO califican como bloqueo. Si la imagen muestra una carretera libre y transitable sin obstaculos, debes marcar "is_valid" como false.
+- Si la categoria es "Accidente", la imagen DEBE mostrar un accidente de transito real, colision, vehiculo danado o volcado en la via.
+- Si la categoria es "Clima", la imagen DEBE mostrar condiciones de clima adversas (lluvia, niebla, nieve, inundacion).
+- Si la categoria es "Estado de Ruta", la imagen DEBE mostrar danos en la via (derrumbes, baches, deslizamientos).
 
-Reglas de validacion adicionales:
-- La imagen debe ser coherente con la descripcion brindada por el usuario.
-- Si la imagen muestra selfies, caras de personas de cerca, comida, interiores de viviendas, memes, capturas de pantalla de chats, texto no relacionado o animales no relacionados, "is_valid" debe ser false.
-- Se muy riguroso para evitar reportes falsos o spam.
+Reglas de validacion estrictas contra pruebas (Adversarial Testing) y ANTI-FRAUDE:
+- La imagen DEBE ser una fotografia real tomada directamente en un entorno real.
+- RECHAZA COMPLETAMENTE "fotos de fotos" (re-fotografías de una foto física) y "fotos de pantallas" (re-fotografías tomadas a una pantalla de celular, monitor, TV, tablet, etc.). Identifica signos típicos de fotos de pantallas: patrones de moiré (interferencia de líneas/ondas/cuadrícula de píxeles), reflejos del vidrio de la pantalla, marcos o bordes físicos de dispositivos electrónicos, o desenfoque por píxeles visibles de pantalla.
+- Si los METADATOS DE LA FOTO (EXIF) están vacíos o indican un software de edición (como Photoshop, GIMP) Y observas indicios de re-fotografía, rechaza inmediatamente.
+- Rechaza dibujos, caricaturas, renders, capturas de mapas, juguetes/miniaturas o imagenes creadas digitalmente.
+- Coherencia Geografica/Contextual: La imagen debe ser coherente con Bolivia. Si muestra de forma obvia una gran metropoli extranjera (ej: Nueva York, Miami, Tokio), letreros en ingles/chino, canales (ej: Venecia) u otros elementos ajenos a Bolivia, debes marcar "is_valid" como false.
+- Coherencia de Descripcion: La imagen debe corresponder directamente a la descripcion provista.
+- Si la imagen muestra selfies, caras de cerca, comida, interiores de casas, memes o capturas de pantalla, "is_valid" debe ser false.
 
 Debes responder UNICAMENTE con un objeto JSON valido con la siguiente estructura (sin formato markdown ni texto adicional, solo el JSON):
 {
   "is_valid": true o false,
   "confidence": un numero de 0 a 100 indicando la seguridad de tu analisis,
   "category": "$category",
-  "reason": "Una breve explicacion en espanol de lo que detectaste y por que es valido o invalido (maximo 15 palabras)."
+  "reason": "Una explicacion en espanol de lo que observas en la imagen y por que se acepta o se rechaza (maximo 30 palabras).",
+  "descripcion_reformulada": "Si 'is_valid' es true, una descripcion reformulada del incidente basada en la imagen y comentario del usuario. Debe ser formal, profesional y muy breve (maximo 10 palabras) en espanol, similar al estilo de los reportes oficiales (ej. 'Bloqueo con piedras y ramas', 'Derrumbe de tierra sobre la calzada'). Si 'is_valid' es false, coloca null."
 }
 ''';
 
@@ -165,14 +187,123 @@ Debes responder UNICAMENTE con un objeto JSON valido con la siguiente estructura
         'confidence': (parsed['confidence'] as num?)?.toDouble() ?? 0.0,
         'category': parsed['category'] ?? 'Desconocido',
         'reason': parsed['reason'] ?? 'Sin descripcion.',
+        'descripcion_reformulada': parsed['descripcion_reformulada'] as String?,
       };
     } catch (e) {
+      // Intentar fallback automático con Groq
+      try {
+        return await _verifyImageWithGroq(bytes, mimeType, category, description, exifMetadata: exifMetadata);
+      } catch (groqError) {
+        String userFriendlyReason = 'Error de análisis: No se pudo verificar la imagen ($e)';
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('503') || errStr.contains('unavailable') || errStr.contains('high demand') || errStr.contains('spike')) {
+          userFriendlyReason = 'El servicio de IA de Google está temporalmente saturado debido a una alta demanda. Por favor, reintenta enviar tu reporte en unos minutos.';
+        } else if (errStr.contains('api_key') || errStr.contains('api key') || errStr.contains('api key not found')) {
+          userFriendlyReason = 'Error de configuración: Clave de API de Gemini no válida o ausente.';
+        } else if (errStr.contains('400') || errStr.contains('invalid argument')) {
+          userFriendlyReason = 'Error de formato: Los datos de la imagen o texto enviados a la IA no son válidos.';
+        }
+
+        return {
+          'is_valid': false,
+          'confidence': 0.0,
+          'category': category.isNotEmpty ? category : 'Desconocido',
+          'reason': '$userFriendlyReason (Backup Groq falló también: $groqError)',
+        };
+      }
+    }
+  }
+
+  /// Helper para verificar la imagen de reporte con Groq (Llama 3.2 Vision)
+  Future<Map<String, dynamic>> _verifyImageWithGroq(
+      Uint8List bytes, String mimeType, String category, String description,
+      {Map<String, String>? exifMetadata}) async {
+    const groqKey = String.fromEnvironment('GROQ_API_KEY');
+
+    String metadataText = "No disponibles o no detectados (posible imagen guardada, captura de pantalla o modificada).";
+    if (exifMetadata != null && exifMetadata.isNotEmpty) {
+      metadataText = exifMetadata.entries.map((e) => "- ${e.key}: ${e.value}").join('\n');
+    }
+
+    final base64Image = base64Encode(bytes);
+    final prompt = '''
+Analiza esta imagen para un reporte de transitabilidad y estado de carreteras en Bolivia.
+El usuario ha seleccionado la categoria "$category" y ha proporcionado la siguiente descripcion:
+"$description"
+
+METADATOS DE LA FOTO (EXIF):
+$metadataText
+
+Debes validar de manera estricta si la imagen corresponde a la categoria y descripcion reportadas.
+Especificamente:
+- Si la categoria es "Bloqueo", la imagen DEBE mostrar activamente un bloqueo de carretera (personas obstruyendo la via, barricadas, piedras, tierra, troncos u objetos bloqueando el paso). Un trafico urbano pesado o semaforos en rojo NO califican como bloqueo. Si la imagen muestra una carretera libre y transitable sin obstaculos, debes marcar "is_valid" como false.
+- Si la categoria es "Accidente", la imagen DEBE mostrar un accidente de transito real, colision, vehiculo danado o volcado en la via.
+- Si la categoria es "Clima", la imagen DEBE mostrar condiciones de clima adversas (lluvia, niebla, nieve, inundacion).
+- Si la categoria es "Estado de Ruta", la imagen DEBE mostrar danos en la via (derrumbes, baches, deslizamientos).
+
+Reglas de validacion estrictas contra pruebas (Adversarial Testing) y ANTI-FRAUDE:
+- La imagen DEBE ser una fotografia real tomada directamente en un entorno real.
+- RECHAZA COMPLETAMENTE "fotos de fotos" (re-fotografías de una foto física) y "fotos de pantallas" (re-fotografías tomadas a una pantalla de celular, monitor, TV, tablet, etc.). Identifica signos típicos de fotos de pantallas: patrones de moiré (interferencia de líneas/ondas/cuadrícula de píxeles), reflejos del vidrio de la pantalla, marcos o bordes físicos de dispositivos electrónicos, o desenfoque por píxeles visibles de pantalla.
+- Si los METADATOS DE LA FOTO (EXIF) están vacíos o indican un software de edición Y observas indicios de re-fotografía, rechaza inmediatamente.
+- Rechaza dibujos, caricaturas, renders, capturas de mapas, juguetes/miniaturas o imagenes creadas digitalmente.
+- Coherencia Geografica/Contextual: La imagen debe ser coherente con Bolivia. Si muestra de forma obvia una gran metropoli extranjera (ej: Nueva York, Miami, Tokio), letreros en ingles/chino, canales (ej: Venecia) u otros elementos ajenos a Bolivia, debes marcar "is_valid" como false.
+
+Debes responder UNICAMENTE con un objeto JSON valido con la siguiente estructura (sin formato markdown ni texto adicional, solo el JSON):
+{
+  "is_valid": true o false,
+  "confidence": un numero de 0 a 100 indicando la seguridad de tu analisis,
+  "category": "$category",
+  "reason": "Una explicacion en espanol de lo que observas en la imagen y por que se acepta o se rechaza (maximo 30 palabras).",
+  "descripcion_reformulada": "Si 'is_valid' es true, una descripcion reformulada del incidente basada en la imagen y comentario del usuario. Debe ser formal, profesional y muy breve (maximo 10 palabras) en espanol, similar al estilo de los reportes oficiales (ej. 'Bloqueo con piedras y ramas', 'Derrumbe de tierra sobre la calzada'). Si 'is_valid' es false, coloca null."
+}
+''';
+
+    final body = jsonEncode({
+      "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": prompt,
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "data:$mimeType;base64,$base64Image",
+              },
+            }
+          ]
+        }
+      ],
+      "response_format": {
+        "type": "json_object"
+      }
+    });
+
+    final response = await http.post(
+      Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $groqKey',
+      },
+      body: body,
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final jsonResponse = jsonDecode(response.body);
+      final content = jsonResponse['choices'][0]['message']['content'].toString().trim();
+      final parsed = jsonDecode(content) as Map<String, dynamic>;
       return {
-        'is_valid': true,
-        'confidence': 50.0,
-        'category': category.isNotEmpty ? category : 'Bloqueo',
-        'reason': 'Fallback (Excepcion): Autoverificado debido a error de validacion.'
+        'is_valid': parsed['is_valid'] ?? false,
+        'confidence': (parsed['confidence'] as num?)?.toDouble() ?? 0.0,
+        'category': parsed['category'] ?? category,
+        'reason': parsed['reason'] ?? 'Sin descripcion de Groq.',
+        'descripcion_reformulada': parsed['descripcion_reformulada'] as String?,
       };
+    } else {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
     }
   }
 

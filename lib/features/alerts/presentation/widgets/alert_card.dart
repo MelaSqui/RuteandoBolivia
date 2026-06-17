@@ -1,10 +1,16 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
+import 'package:ruteando_bolivia/features/routes/utils/route_utils.dart';
 
 class AlertCard extends StatefulWidget {
   final Map<String, dynamic> event;
-  const AlertCard({super.key, required this.event});
+  final LatLng? userLocation;
+  const AlertCard({super.key, required this.event, this.userLocation});
 
   @override
   State<AlertCard> createState() => _AlertCardState();
@@ -14,6 +20,206 @@ class _AlertCardState extends State<AlertCard> {
   int _sigueCount = 0;
   int _despejadoCount = 0;
   bool? _userVote; // null=sin voto, true=sigue, false=despejado
+  bool _isValidating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVoteState();
+  }
+
+  Future<void> _loadVoteState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedVote = prefs.getString('vote_road_event_${widget.event['id']}');
+
+    final rawData = widget.event['raw_data'];
+    Map<String, dynamic>? raw;
+    if (rawData is Map<String, dynamic>) {
+      raw = rawData;
+    } else if (rawData is String) {
+      try {
+        raw = jsonDecode(rawData) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      setState(() {
+        _sigueCount = int.tryParse(raw?['votos_sigue']?.toString() ?? '0') ?? 0;
+        _despejadoCount = int.tryParse(raw?['votos_despejado']?.toString() ?? '0') ?? 0;
+        if (savedVote == 'sigue') {
+          _userVote = true;
+        } else if (savedVote == 'despejado') {
+          _userVote = false;
+        } else {
+          _userVote = null;
+        }
+      });
+    }
+  }
+
+  Future<bool> _isNearIncident() async {
+    final double? lat = double.tryParse(widget.event['latitud_inicio']?.toString() ?? '');
+    final double? lng = double.tryParse(widget.event['longitud_inicio']?.toString() ?? '');
+
+    if (lat == null || lng == null) {
+      // Si el incidente no tiene coordenadas, se asume transitable/permitido votar
+      return true;
+    }
+
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showSnackBar('Por favor, activa el servicio de ubicación (GPS).');
+        return false;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _showSnackBar('Permiso de ubicación denegado.');
+          return false;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        _showSnackBar('Permisos de GPS denegados permanentemente.');
+        return false;
+      }
+
+      // Obtener ubicación rápida
+      final Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low,
+      );
+
+      final userCoords = LatLng(position.latitude, position.longitude);
+      final incidentCoords = LatLng(lat, lng);
+
+      final double distance = RouteUtils.calculateDistance(userCoords, incidentCoords);
+
+      // Límite de 5 km a la redonda
+      if (distance > 5.0) {
+        _showSnackBar('No te encuentras en esta zona. Según tu ubicación (estás a ${distance.toStringAsFixed(1)} km), no puedes votar sobre el estado de este reporte.');
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      _showSnackBar('No se pudo verificar tu ubicación actual. Por favor, asegúrate de activar tu GPS y otorgar permisos de ubicación.');
+      return false;
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+
+  Future<void> _submitVote(bool isSigue) async {
+    if (_isValidating) return;
+
+    setState(() {
+      _isValidating = true;
+    });
+
+    final bool near = await _isNearIncident();
+    if (!near) {
+      if (mounted) {
+        setState(() {
+          _isValidating = false;
+        });
+      }
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final originalUserVote = _userVote;
+    int newSigue = _sigueCount;
+    int newDespejado = _despejadoCount;
+    String? newPrefsVote;
+
+    if (isSigue) {
+      if (originalUserVote == true) {
+        newSigue--;
+        newPrefsVote = null;
+      } else {
+        if (originalUserVote == false) newDespejado--;
+        newSigue++;
+        newPrefsVote = 'sigue';
+      }
+    } else {
+      if (originalUserVote == false) {
+        newDespejado--;
+        newPrefsVote = null;
+      } else {
+        if (originalUserVote == true) newSigue--;
+        newDespejado++;
+        newPrefsVote = 'despejado';
+      }
+    }
+
+    // Actualizar UI local inmediatamente para feedback rápido
+    if (mounted) {
+      setState(() {
+        _sigueCount = newSigue;
+        _despejadoCount = newDespejado;
+        _userVote = newPrefsVote == 'sigue' ? true : (newPrefsVote == 'despejado' ? false : null);
+      });
+    }
+
+    try {
+      final client = Supabase.instance.client;
+
+      // Obtener el raw_data actual de la base de datos para no sobreescribir otros campos
+      final response = await client
+          .from('road_events')
+          .select('raw_data')
+          .eq('id', widget.event['id'])
+          .single();
+
+      final rawData = response['raw_data'];
+      Map<String, dynamic> raw = {};
+      if (rawData is Map<String, dynamic>) {
+        raw = Map<String, dynamic>.from(rawData);
+      } else if (rawData is String) {
+        try {
+          raw = Map<String, dynamic>.from(jsonDecode(rawData));
+        } catch (_) {}
+      }
+
+      raw['votos_sigue'] = newSigue;
+      raw['votos_despejado'] = newDespejado;
+
+      await client
+          .from('road_events')
+          .update({'raw_data': raw})
+          .eq('id', widget.event['id']);
+
+      if (newPrefsVote != null) {
+        await prefs.setString('vote_road_event_${widget.event['id']}', newPrefsVote);
+      } else {
+        await prefs.remove('vote_road_event_${widget.event['id']}');
+      }
+    } catch (e) {
+      // Revertir estado si falla la red
+      _loadVoteState();
+      _showSnackBar('Error de red al guardar el voto: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isValidating = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +249,16 @@ class _AlertCardState extends State<AlertCard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _Badge(color: style.color, icon: style.icon, label: style.label),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _Badge(color: style.color, icon: style.icon, label: style.label),
+                    if (widget.userLocation != null) ...[
+                      const SizedBox(width: 8),
+                      _distanceBadge(widget.userLocation!),
+                    ],
+                  ],
+                ),
                 Text(
                   _timeAgo(widget.event['hora_reporte'] ?? widget.event['updated_at']),
                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -73,43 +288,25 @@ class _AlertCardState extends State<AlertCard> {
               children: [
                 Expanded(
                   child: _VoteButton(
-                    icon: Icons.thumb_up_rounded,
+                    icon: Icons.warning_rounded,
                     label: 'Sigue ahí',
                     count: _sigueCount,
-                    color: AppTheme.positive,
+                    color: AppTheme.danger,
                     isActive: _userVote == true,
                     isDark: isDark,
-                    onTap: () => setState(() {
-                      if (_userVote == true) {
-                        _sigueCount--;
-                        _userVote = null;
-                      } else {
-                        if (_userVote == false) _despejadoCount--;
-                        _sigueCount++;
-                        _userVote = true;
-                      }
-                    }),
+                    onTap: () => _submitVote(true),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _VoteButton(
-                    icon: Icons.thumb_down_rounded,
+                    icon: Icons.check_circle_rounded,
                     label: 'Despejado',
                     count: _despejadoCount,
-                    color: AppTheme.danger,
+                    color: AppTheme.positive,
                     isActive: _userVote == false,
                     isDark: isDark,
-                    onTap: () => setState(() {
-                      if (_userVote == false) {
-                        _despejadoCount--;
-                        _userVote = null;
-                      } else {
-                        if (_userVote == true) _sigueCount--;
-                        _despejadoCount++;
-                        _userVote = false;
-                      }
-                    }),
+                    onTap: () => _submitVote(false),
                   ),
                 ),
               ],
@@ -222,6 +419,40 @@ class _AlertCardState extends State<AlertCard> {
       return '';
     }
   }
+
+  Widget _distanceBadge(LatLng userLoc) {
+    final double? lat = double.tryParse(widget.event['latitud_inicio']?.toString() ?? '');
+    final double? lng = double.tryParse(widget.event['longitud_inicio']?.toString() ?? '');
+    if (lat == null || lng == null) return const SizedBox.shrink();
+
+    final double distance = RouteUtils.calculateDistance(userLoc, LatLng(lat, lng));
+    final String text = distance < 1.0
+        ? '${(distance * 1000).toStringAsFixed(0)} m'
+        : '${distance.toStringAsFixed(1)} km';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.positive.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.navigation_rounded, color: AppTheme.positive, size: 10),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(
+              color: AppTheme.positive,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Badge extends StatelessWidget {
@@ -280,6 +511,7 @@ class _VoteButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final idle = isDark ? Colors.white.withValues(alpha: 0.5) : Colors.black.withValues(alpha: 0.4);
+    final foregroundColor = isActive ? Colors.white : idle;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -287,17 +519,17 @@ class _VoteButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: isActive
-              ? color.withValues(alpha: 0.15)
+              ? color
               : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isActive ? color.withValues(alpha: 0.4) : Colors.transparent,
+            color: isActive ? color.withValues(alpha: 0.2) : Colors.transparent,
           ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 15, color: isActive ? color : idle),
+            Icon(icon, size: 15, color: foregroundColor),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
@@ -305,7 +537,7 @@ class _VoteButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: isActive ? color : idle,
+                  color: foregroundColor,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -315,7 +547,7 @@ class _VoteButton extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.18),
+                  color: isActive ? Colors.white.withValues(alpha: 0.25) : color.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -323,7 +555,7 @@ class _VoteButton extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: color,
+                    color: isActive ? Colors.white : color,
                   ),
                 ),
               ),

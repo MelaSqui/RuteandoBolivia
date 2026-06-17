@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -34,25 +35,46 @@ class RoadEvent {
 
   factory RoadEvent.fromJson(Map<String, dynamic> json) {
     final evento = (json['evento'] ?? '').toString().toUpperCase();
-    String categoria;
-    if (evento.contains('BLOQUEO')) {
-      categoria = 'Bloqueo';
-    } else if (evento.contains('DERRUMBE') || evento.contains('BARRO') || evento.contains('INUNDACION')) {
-      categoria = 'Derrumbe / Clima';
-    } else if (evento.contains('CONSTRUCCION') || evento.contains('MANTENIMIENTO')) {
-      categoria = 'Obras Viales';
-    } else if (evento == 'NINGUN EVENTO' || evento.isEmpty) {
-      // Check restriccion
-      final restriccion = (json['restriccion_vehicular'] ?? '').toString().toUpperCase();
-      if (restriccion.contains('NO CIRCULAR')) {
+    String categoria = 'Otro';
+
+    final rawData = json['raw_data'];
+    String? categoriaIa;
+    if (rawData is Map) {
+      categoriaIa = rawData['categoria_ia']?.toString();
+    }
+
+    if (categoriaIa != null && categoriaIa.isNotEmpty) {
+      if (categoriaIa == 'Bloqueo') {
         categoria = 'Bloqueo';
-      } else if (restriccion.contains('PRECAUCIÓN') || restriccion.contains('PRECAUCION')) {
+      } else if (categoriaIa == 'Accidente') {
+        categoria = 'Precaución';
+      } else if (categoriaIa == 'Clima') {
+        categoria = 'Derrumbe / Clima';
+      } else if (categoriaIa == 'Estado de Ruta') {
         categoria = 'Precaución';
       } else {
-        categoria = 'Precaución';
+        categoria = 'Otro';
       }
     } else {
-      categoria = 'Otro';
+      if (evento.contains('BLOQUEO')) {
+        categoria = 'Bloqueo';
+      } else if (evento.contains('DERRUMBE') || evento.contains('BARRO') || evento.contains('INUNDACION')) {
+        categoria = 'Derrumbe / Clima';
+      } else if (evento.contains('CONSTRUCCION') || evento.contains('MANTENIMIENTO')) {
+        categoria = 'Obras Viales';
+      } else if (evento == 'NINGUN EVENTO' || evento.isEmpty) {
+        // Check restriccion
+        final restriccion = (json['restriccion_vehicular'] ?? '').toString().toUpperCase();
+        if (restriccion.contains('NO CIRCULAR')) {
+          categoria = 'Bloqueo';
+        } else if (restriccion.contains('PRECAUCIÓN') || restriccion.contains('PRECAUCION')) {
+          categoria = 'Precaución';
+        } else {
+          categoria = 'Precaución';
+        }
+      } else {
+        categoria = 'Otro';
+      }
     }
 
     return RoadEvent(
@@ -114,10 +136,24 @@ class _MapaTransitabilidadState extends State<MapaTransitabilidad> {
     try {
       final response = await _supabase
           .from('road_events')
-          .select('id, ruta, departamento, evento, restriccion_vehicular, transitable_con_desvio, trabajos_conservacion, latitud_inicio, longitud_inicio, hora_reporte')
+          .select('id, ruta, departamento, evento, restriccion_vehicular, transitable_con_desvio, trabajos_conservacion, latitud_inicio, longitud_inicio, hora_reporte, raw_data')
           .order('id', ascending: false);
 
       final events = (response as List)
+          .where((e) {
+            final rawData = e['raw_data'];
+            Map<String, dynamic>? raw;
+            if (rawData is Map<String, dynamic>) {
+              raw = rawData;
+            } else if (rawData is String) {
+              try {
+                raw = jsonDecode(rawData) as Map<String, dynamic>;
+              } catch (_) {}
+            }
+            final sigue = int.tryParse(raw?['votos_sigue']?.toString() ?? '0') ?? 0;
+            final despejado = int.tryParse(raw?['votos_despejado']?.toString() ?? '0') ?? 0;
+            return !(despejado >= 1 && despejado > sigue);
+          })
           .map((e) => RoadEvent.fromJson(e))
           .where((e) => e.lat != null && e.lng != null)
           .toList();

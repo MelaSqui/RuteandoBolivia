@@ -5,7 +5,8 @@ import '../../../../services/theme_service.dart';
 import 'edit_profile_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool isActive;
+  const ProfileScreen({super.key, this.isActive = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -29,6 +30,14 @@ class _ProfileScreenState extends State<ProfileScreen>
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
     _loadProfile();
+  }
+
+  @override
+  void didUpdateWidget(ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _loadProfile();
+    }
   }
 
   @override
@@ -144,8 +153,12 @@ class _ProfileScreenState extends State<ProfileScreen>
                 strokeWidth: 2.5,
               ),
             )
-          : CustomScrollView(
-              slivers: [
+          : RefreshIndicator(
+              onRefresh: _loadProfile,
+              color: theme.colorScheme.primary,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
                 // ── Hero Header ──
                 SliverToBoxAdapter(
                   child: _buildHeroHeader(
@@ -315,6 +328,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ],
             ),
+          ),
     );
   }
 

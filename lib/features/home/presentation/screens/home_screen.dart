@@ -29,8 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       const AlertsScreen(),
       const ReportsScreen(),
-      const RoutesScreen(),
-      const ProfileScreen(),
+      RoutesScreen(isActive: _currentIndex == 3),
+      ProfileScreen(isActive: _currentIndex == 4),
     ];
 
     return Scaffold(
