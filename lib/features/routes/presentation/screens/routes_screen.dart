@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -12,7 +13,8 @@ import 'package:ruteando_bolivia/features/routes/utils/route_utils.dart';
 import 'package:ruteando_bolivia/features/discovery/data/services/gemini_service.dart';
 
 class RoutesScreen extends StatefulWidget {
-  const RoutesScreen({super.key});
+  final bool isActive;
+  const RoutesScreen({super.key, this.isActive = false});
 
   @override
   State<RoutesScreen> createState() => _RoutesScreenState();
@@ -37,6 +39,7 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
   List<Map<String, dynamic>> _suggestions = [];
   bool _isSearching = false;
   Timer? _debounce;
+  Timer? _roadblocksTimer;
 
   bool _isLoadingRoutes = false;
   List<Map<String, dynamic>> _routeAlternatives = [];
@@ -67,6 +70,10 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
     _initOriginLocation();
     _fetchActiveRoadblocks();
 
+    _roadblocksTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _fetchActiveRoadblocks();
+    });
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -80,6 +87,7 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
   @override
   void dispose() {
     _debounce?.cancel();
+    _roadblocksTimer?.cancel();
     _destinationController.dispose();
     _destinationFocusNode.dispose();
     _pulseController.dispose();
@@ -92,8 +100,23 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
           .from('road_events')
           .select('id, ruta, departamento, evento, restriccion_vehicular, transitable_con_desvio, latitud_inicio, longitud_inicio, raw_data');
       if (response != null) {
+        final filtered = List<Map<String, dynamic>>.from(response).where((e) {
+          final rawData = e['raw_data'];
+          Map<String, dynamic>? raw;
+          if (rawData is Map<String, dynamic>) {
+            raw = rawData;
+          } else if (rawData is String) {
+            try {
+              raw = jsonDecode(rawData) as Map<String, dynamic>;
+            } catch (_) {}
+          }
+          final sigue = int.tryParse(raw?['votos_sigue']?.toString() ?? '0') ?? 0;
+          final despejado = int.tryParse(raw?['votos_despejado']?.toString() ?? '0') ?? 0;
+          return !(despejado >= 1 && despejado > sigue);
+        }).toList();
+
         setState(() {
-          _activeRoadblocks = List<Map<String, dynamic>>.from(response);
+          _activeRoadblocks = filtered;
         });
       }
     } catch (e) {
@@ -189,10 +212,8 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
     _destinationController.text = destName.split(',').first;
     _destinationFocusNode.unfocus();
 
-    // Fetch roadblocks if not already done
-    if (_activeRoadblocks.isEmpty) {
-      await _fetchActiveRoadblocks();
-    }
+    // Fetch latest roadblocks
+    await _fetchActiveRoadblocks();
 
     if (_originCoords == null) {
       await _initOriginLocation();
@@ -765,6 +786,30 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
                   ),
                 ),
               ),
+            ),
+          ),
+
+          // ── FLOATING REFRESH BUTTON ──
+          Positioned(
+            right: 16,
+            bottom: _hasSearched ? 376 : 88,
+            child: FloatingActionButton(
+              mini: true,
+              backgroundColor: isDark ? AppTheme.darkCard : Colors.white,
+              foregroundColor: AppTheme.climate,
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Actualizando estado vial...'),
+                    duration: const Duration(seconds: 1),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+                await _fetchActiveRoadblocks();
+              },
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: const Icon(Icons.refresh_rounded),
             ),
           ),
 

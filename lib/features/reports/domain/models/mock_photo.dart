@@ -10,6 +10,7 @@ class MockPhoto {
   final bool isVerified;
   final double aiConfidence;
   final String? aiReason;
+  final String? description;
 
   const MockPhoto({
     required this.id,
@@ -20,5 +21,6 @@ class MockPhoto {
     this.isVerified = false,
     this.aiConfidence = 0.0,
     this.aiReason,
+    this.description,
   });
 }

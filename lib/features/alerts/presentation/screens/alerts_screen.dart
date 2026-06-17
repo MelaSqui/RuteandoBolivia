@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:ruteando_bolivia/features/alerts/data/alerts_repository.dart';
 import 'package:ruteando_bolivia/features/alerts/presentation/widgets/alert_card.dart';
 import 'package:ruteando_bolivia/theme/app_theme.dart';
+import 'package:ruteando_bolivia/features/routes/utils/route_utils.dart';
 
 class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key});
@@ -18,6 +22,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
   bool _isLoading = true;
   String? _error;
   String _query = '';
+  LatLng? _userLocation;
 
   @override
   void initState() {
@@ -37,6 +42,24 @@ class _AlertsScreenState extends State<AlertsScreen> {
       _error = null;
     });
     try {
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+          Position? position = await Geolocator.getLastKnownPosition();
+          if (position == null) {
+            position = await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.low,
+            ).timeout(const Duration(seconds: 2));
+          }
+          _userLocation = LatLng(position.latitude, position.longitude);
+        }
+      } catch (_) {
+        _userLocation = null;
+      }
+
       final data = await _repo.fetchRoadEvents();
       setState(() {
         _events = data;
@@ -51,9 +74,24 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   List<Map<String, dynamic>> get _filtered {
-    if (_query.isEmpty) return _events;
+    final activeEvents = _events.where((e) {
+      final rawData = e['raw_data'];
+      Map<String, dynamic>? raw;
+      if (rawData is Map<String, dynamic>) {
+        raw = rawData;
+      } else if (rawData is String) {
+        try {
+          raw = json.decode(rawData) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      final sigue = int.tryParse(raw?['votos_sigue']?.toString() ?? '0') ?? 0;
+      final despejado = int.tryParse(raw?['votos_despejado']?.toString() ?? '0') ?? 0;
+      return !(despejado >= 1 && despejado > sigue);
+    }).toList();
+
+    if (_query.isEmpty) return activeEvents;
     final q = _query.toLowerCase();
-    return _events.where((e) {
+    return activeEvents.where((e) {
       return (e['ruta'] ?? '').toString().toLowerCase().contains(q) ||
           (e['seccion'] ?? '').toString().toLowerCase().contains(q) ||
           (e['departamento'] ?? '').toString().toLowerCase().contains(q) ||
@@ -61,9 +99,48 @@ class _AlertsScreenState extends State<AlertsScreen> {
     }).toList();
   }
 
-  Map<String, List<Map<String, dynamic>>> get _grouped {
+  List<Map<String, dynamic>> get _sortedFiltered {
+    final list = _filtered;
+    if (_userLocation == null) return list;
+
+    final sorted = List<Map<String, dynamic>>.from(list);
+    sorted.sort((a, b) {
+      final aLat = double.tryParse(a['latitud_inicio']?.toString() ?? '');
+      final aLng = double.tryParse(a['longitud_inicio']?.toString() ?? '');
+      final bLat = double.tryParse(b['latitud_inicio']?.toString() ?? '');
+      final bLng = double.tryParse(b['longitud_inicio']?.toString() ?? '');
+
+      if (aLat == null || aLng == null) return 1;
+      if (bLat == null || bLng == null) return -1;
+
+      final aDist = RouteUtils.calculateDistance(_userLocation!, LatLng(aLat, aLng));
+      final bDist = RouteUtils.calculateDistance(_userLocation!, LatLng(bLat, bLng));
+
+      return aDist.compareTo(bDist);
+    });
+    return sorted;
+  }
+
+  List<Map<String, dynamic>> get _nearbyEvents {
+    if (_userLocation == null) return [];
+    return _sortedFiltered.where((e) {
+      final lat = double.tryParse(e['latitud_inicio']?.toString() ?? '');
+      final lng = double.tryParse(e['longitud_inicio']?.toString() ?? '');
+      if (lat == null || lng == null) return false;
+      final dist = RouteUtils.calculateDistance(_userLocation!, LatLng(lat, lng));
+      return dist <= 20.0;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _otherEvents {
+    if (_userLocation == null) return _sortedFiltered;
+    final nearbyIds = _nearbyEvents.map((e) => e['id']).toSet();
+    return _sortedFiltered.where((e) => !nearbyIds.contains(e['id'])).toList();
+  }
+
+  Map<String, List<Map<String, dynamic>>> get _groupedOthers {
     final result = <String, List<Map<String, dynamic>>>{};
-    for (final ev in _filtered) {
+    for (final ev in _otherEvents) {
       final dept = (ev['departamento'] ?? 'OTROS').toString().toUpperCase();
       result.putIfAbsent(dept, () => []).add(ev);
     }
@@ -175,9 +252,18 @@ class _AlertsScreenState extends State<AlertsScreen> {
       );
     }
 
-    final grouped = _grouped;
+    final nearby = _nearbyEvents;
+    final groupedOthers = _groupedOthers;
     final items = <({String? dept, Map<String, dynamic>? event})>[];
-    for (final entry in grouped.entries) {
+
+    if (nearby.isNotEmpty) {
+      items.add((dept: 'CERCANOS A TI', event: null));
+      for (final ev in nearby) {
+        items.add((dept: null, event: ev));
+      }
+    }
+
+    for (final entry in groupedOthers.entries) {
       items.add((dept: entry.key, event: null));
       for (final ev in entry.value) {
         items.add((dept: null, event: ev));
@@ -198,6 +284,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           return AlertCard(
             key: ValueKey(item.event!['id']),
             event: item.event!,
+            userLocation: _userLocation,
           );
         },
       ),
