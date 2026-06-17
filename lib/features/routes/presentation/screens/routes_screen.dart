@@ -222,76 +222,24 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
       roadblocksPerRoute.add(collisions);
     }
 
-    // ── RECÁLCULO INTELIGENTE ──
-    // Si TODAS las rutas directas están bloqueadas, buscar desvíos por pueblos intermedios
-    final bool allRoutesBlocked = roadblocksPerRoute.every((blocks) => blocks.isNotEmpty);
-
+    // ── RECÁLCULO DELEGADO AL BACKEND ──
+    // Nuestro backend (Dijkstra) ya se encarga de esquivar bloqueos y darnos la ruta limpia
     List<Map<String, dynamic>> finalRoutes = List.from(routes);
     List<List<Map<String, dynamic>>> finalRoadblocks = List.from(roadblocksPerRoute);
 
-    if (allRoutesBlocked) {
-      debugPrint('[Ruteando] Todas las rutas directas bloqueadas — iniciando recálculo inteligente...');
+    // Reordenar: rutas libres primero, luego bloqueadas (por si el backend no pudo evitar todo)
+    final combined = List.generate(finalRoutes.length, (i) => {
+      'route': finalRoutes[i],
+      'blocks': finalRoadblocks[i],
+    });
+    combined.sort((a, b) {
+      final aBlocked = (a['blocks'] as List).isNotEmpty ? 1 : 0;
+      final bBlocked = (b['blocks'] as List).isNotEmpty ? 1 : 0;
+      return aBlocked.compareTo(bBlocked);
+    });
 
-      // Mostrar estado intermedio al usuario mientras se recalcula
-      if (mounted) {
-        setState(() {
-          _routeAlternatives = finalRoutes;
-          _roadblocksPerRoute = finalRoadblocks;
-          _aiRecommendation = '⏳ Todas las rutas directas están bloqueadas. Buscando desvíos inteligentes por pueblos intermedios...';
-        });
-      }
-
-      // Buscar pueblos intermedios cercanos a la ruta
-      final waypoints = await _routeService.findIntermediateWaypoints(origin, destCoords);
-      debugPrint('[Ruteando] Waypoints intermedios encontrados: ${waypoints.map((w) => w['name']).toList()}');
-
-      for (var wp in waypoints) {
-        final wpCoords = LatLng(wp['latitude'] as double, wp['longitude'] as double);
-        final wpName = wp['name'] as String;
-
-        final detourRoute = await _routeService.getRouteViaWaypoint(origin, wpCoords, destCoords);
-        if (detourRoute != null) {
-          // Verificar si esta ruta alternativa es realmente diferente de las existentes
-          final detourPolyline = detourRoute['polyline'] as List<LatLng>;
-          final bool isDuplicate = finalRoutes.any((existingRoute) {
-            final existingPoly = existingRoute['polyline'] as List<LatLng>;
-            // Compare midpoints — if they're very close, routes are likely the same
-            if (existingPoly.isEmpty || detourPolyline.isEmpty) return false;
-            final existingMid = existingPoly[existingPoly.length ~/ 2];
-            final detourMid = detourPolyline[detourPolyline.length ~/ 2];
-            return RouteUtils.calculateDistance(existingMid, detourMid) < 2.0; // < 2km apart = duplicate
-          });
-
-          if (!isDuplicate) {
-            // Etiquetar la ruta con el nombre del pueblo por donde pasa
-            detourRoute['summary'] = 'Desvío vía $wpName';
-            detourRoute['is_detour'] = true;
-
-            // Detectar bloqueos en esta ruta alternativa
-            final detourCollisions = RouteUtils.detectRoadblockCollisions(detourPolyline, _activeRoadblocks);
-
-            finalRoutes.add(detourRoute);
-            finalRoadblocks.add(detourCollisions);
-
-            debugPrint('[Ruteando] Desvío vía $wpName: ${detourRoute['distance_km']}km, ${detourCollisions.length} bloqueos');
-          }
-        }
-      }
-
-      // Reordenar: rutas libres primero, luego bloqueadas
-      final combined = List.generate(finalRoutes.length, (i) => {
-        'route': finalRoutes[i],
-        'blocks': finalRoadblocks[i],
-      });
-      combined.sort((a, b) {
-        final aBlocked = (a['blocks'] as List).isNotEmpty ? 1 : 0;
-        final bBlocked = (b['blocks'] as List).isNotEmpty ? 1 : 0;
-        return aBlocked.compareTo(bBlocked);
-      });
-
-      finalRoutes = combined.map((c) => c['route'] as Map<String, dynamic>).toList();
-      finalRoadblocks = combined.map((c) => c['blocks'] as List<Map<String, dynamic>>).toList();
-    }
+    finalRoutes = combined.map((c) => c['route'] as Map<String, dynamic>).toList();
+    finalRoadblocks = combined.map((c) => c['blocks'] as List<Map<String, dynamic>>).toList();
 
     if (!mounted) return;
 
@@ -307,27 +255,33 @@ class _RoutesScreenState extends State<RoutesScreen> with SingleTickerProviderSt
       _fitMapToRoute(finalRoutes[0]['polyline'] as List<LatLng>);
     }
 
-    // AI Safety Analysis
-    try {
-      final advice = await _geminiService.analyzeRouteSafety(
-        origin: _originName,
-        destination: _destinationName,
-        routeAlternatives: finalRoutes,
-        roadblocksPerRoute: finalRoadblocks,
-      );
-      if (mounted) {
-        setState(() {
-          _aiRecommendation = advice;
-          _isLoadingAI = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _aiRecommendation = 'El copiloto Ruteando AI está temporalmente fuera de línea. Estado vial disponible en el mapa.';
-          _isLoadingAI = false;
-        });
-      }
+    // AI Safety Analysis (Desactivado temporalmente para priorizar Dijkstra)
+    // try {
+    //   final advice = await _geminiService.analyzeRouteSafety(
+    //     origin: _originName,
+    //     destination: _destinationName,
+    //     routeAlternatives: finalRoutes,
+    //     roadblocksPerRoute: finalRoadblocks,
+    //   );
+    //   if (mounted) {
+    //     setState(() {
+    //       _aiRecommendation = advice;
+    //       _isLoadingAI = false;
+    //     });
+    //   }
+    // } catch (e) {
+    //   if (mounted) {
+    //     setState(() {
+    //       _aiRecommendation = 'El copiloto Ruteando AI está temporalmente fuera de línea. Estado vial disponible en el mapa.';
+    //       _isLoadingAI = false;
+    //     });
+    //   }
+    // }
+    if (mounted) {
+      setState(() {
+        _aiRecommendation = 'El motor de ruteo Dijkstra te ha asignado la ruta óptima esquivando bloqueos.';
+        _isLoadingAI = false;
+      });
     }
   }
 
@@ -418,10 +372,18 @@ Responde en español de forma sumamente concisa (máximo 3 oraciones cortas y di
         apiKey: apiKey,
       );
 
-      final responseCustom = await model.generateContent([Content.text(systemPrompt)]);
+      // Custom Gemini Chat (Desactivado temporalmente)
+      // final responseCustom = await model.generateContent([Content.text(systemPrompt)]);
+      // if (mounted) {
+      //   setState(() {
+      //     _customAiAnswer = responseCustom.text ?? 'No tengo información específica sobre esa consulta.';
+      //     _isLoadingCustomAiAnswer = false;
+      //   });
+      // }
+      
       if (mounted) {
         setState(() {
-          _customAiAnswer = responseCustom.text ?? 'No tengo información específica sobre esa consulta.';
+          _customAiAnswer = 'El asistente AI está desactivado en esta versión de pruebas.';
           _isLoadingCustomAiAnswer = false;
         });
       }
