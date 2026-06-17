@@ -6,6 +6,9 @@ const { supabase } = require('../storage/supabase-client');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const routeGraph = require('./route_graph');
+const routeController = require('./route_controller');
+
 app.use(cors());
 app.use(express.json());
 
@@ -81,6 +84,30 @@ app.get('/api/tolls', requireAuth, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+// Nuevo motor de ruteo
+app.use('/api/route', requireAuth, routeController);
+
+app.listen(PORT, async () => {
   logger.info(`🚀 API Server running on port ${PORT}`);
+  
+  // Cargar el grafo vial en memoria
+  routeGraph.loadGraph();
+
+  // Escuchar eventos en tiempo real de Supabase
+  if (supabase) {
+    logger.info('Suscrito a eventos en tiempo real (road_events) para actualizar ruteo...');
+    supabase.channel('custom-all-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'road_events' },
+        (payload) => {
+          logger.info(`Evento detectado en road_events (${payload.eventType}). Actualizando pesos del grafo...`);
+          // Idealmente, pedimos de nuevo los bloqueos activos:
+          supabase.from('road_events').select('latitud_inicio, longitud_inicio').then(({ data }) => {
+             if (data) routeGraph.updateRoadblockCosts(data);
+          });
+        }
+      )
+      .subscribe();
+  }
 });
