@@ -73,11 +73,18 @@ npm run start:scraper
 ```
 *(Alternativamente, puedes usar Docker desde la raíz: `docker compose up --build -d`)*
 
-**Terminal 3: Aplicación Móvil (Frontend)**
+**Terminal 3: Aplicación (Frontend)**
 *⚠️ **Importante:** Asegúrate y espera a que los servicios del Backend hayan iniciado y estén funcionando antes de ejecutar la aplicación.*
+*⚠️ **Importante:** El flag `--dart-define-from-file` es **obligatorio** para que la app pueda conectarse a Supabase. Sin él, la aplicación abrirá en blanco.*
+
 ```bash
 # Estando en la raíz del proyecto
-flutter run
+
+# Para correr en web (Chrome):
+flutter run -d chrome --dart-define-from-file=backend/.env
+
+# Para correr en móvil (con un dispositivo o emulador conectado):
+flutter run --dart-define-from-file=backend/.env
 ```
 ---
 
