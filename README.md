@@ -14,33 +14,71 @@ RuteandoBolivia es un buscador de rutas alternativas inteligente y colaborativo 
 *   **Frontend / Movil:** Flutter (Dart) para la aplicacion multiplataforma.
 *   **Backend / Base de datos:** Supabase para el almacenamiento de incidentes en tiempo real y la gestion de base de datos relacional.
 
-## Configuracion e Instalacion Local
+## Configuración e Inicialización Rápida
 
-1.  **Clona el repositorio:**
-    ```bash
-    git clone https://github.com/MelaSqui/RuteandoBolivia.git
-    cd RuteandoBolivia
-    ```
+Sigue estos pasos **en orden** para inicializar el proyecto completo correctamente.
 
-2.  **Configura el entorno:**
-    Crea una copia del archivo de configuracion `.env`:
-    ```bash
-    cp .env.example .env
-    ```
-    Configura tus credenciales de Supabase en el archivo `.env`:
-    *   `SUPABASE_URL`
-    *   `SUPABASE_ANON_KEY`
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/MelaSqui/RuteandoBolivia.git
+cd RuteandoBolivia
+```
 
-3.  **Descarga las dependencias de Flutter:**
-    ```bash
-    flutter pub get
-    ```
+### 2. Inicializar el Backend y Descargar Rutas
+El backend requiere descargar la red vial fundamental y conectarse a Supabase.
 
-4.  **Ejecuta la aplicacion:**
-    ```bash
-    flutter run
-    ```
+1. Navega a la carpeta del backend y crea tu archivo `.env`:
+   ```bash
+   cd backend
+   touch .env
+   ```
+2. Configura tus credenciales de Supabase en `backend/.env`:
+   ```env
+   SUPABASE_URL=https://tu-proyecto.supabase.co
+   SUPABASE_ANON_KEY=tu-anon-key
+   SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
+   ```
+3. Ejecuta el script SQL (`backend/supabase/schema.sql`) en tu proyecto de Supabase para crear las tablas necesarias.
+4. Instala las dependencias de Node:
+   ```bash
+   npm install
+   ```
+5. **Descarga de rutas iniciales:** Antes de levantar el proyecto por primera vez, debes descargar y procesar los mapas de carreteras. Ejecuta el siguiente comando *(ten paciencia, este proceso puede tardar un tiempo)*:
+   ```bash
+   npm run download-roads
+   ```
 
+### 3. Inicializar el Frontend (Flutter)
+Vuelve a la raíz del proyecto y descarga las dependencias:
+```bash
+cd ..
+flutter pub get
+```
+
+### 4. Orden de Ejecución de Servicios
+
+Para que la aplicación funcione correctamente, es **obligatorio** respetar el siguiente orden al levantar los servicios en terminales separadas. Además, recuerda que **el Scraper siempre debe estar corriendo**, y el Frontend no debe iniciarse hasta que el Backend esté completamente listo.
+
+**Terminal 1: Servidor API (Backend)**
+```bash
+cd backend
+npm run start:api
+```
+
+**Terminal 2: Scraper de Datos (Backend)**
+*⚠️ **Importante:** Este servicio **siempre** debe estar corriendo en segundo plano para mantener la base de datos de vías sincronizada en tiempo real.*
+```bash
+cd backend
+npm run start:scraper
+```
+*(Alternativamente, puedes usar Docker desde la raíz: `docker compose up --build -d`)*
+
+**Terminal 3: Aplicación Móvil (Frontend)**
+*⚠️ **Importante:** Asegúrate y espera a que los servicios del Backend hayan iniciado y estén funcionando antes de ejecutar la aplicación.*
+```bash
+# Estando en la raíz del proyecto
+flutter run
+```
 ---
 
 ## Flujo de Trabajo con Git
