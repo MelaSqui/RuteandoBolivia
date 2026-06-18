@@ -4,7 +4,7 @@ RuteandoBolivia es un buscador de rutas alternativas inteligente y colaborativo 
 
 ## Caracteristicas Principales
 
-*   Mapa Interactivo de Carreteras: Visualizacion de la Red Vial Fundamental de Bolivia con indicadores visuales de tramos transitables e interrumpidos.
+*   Mapa Interactivo de Carreteras: Visualización de la Red Vial Fundamental de Bolivia con indicadores visuales de tramos transitables e interrumpidos.
 *   Enrutamiento Inteligente: Calculo automatico del camino mas corto o seguro que evite tramos con bloqueos o derrumbes activos.
 *   Reportes Comunitarios: Registro dinamico de obstaculos en la via (bloqueos, derrumbes, factores climativos graves, baches graves).
 *   Validacion Colaborativa: Sistema de confirmacion de reportes basado en votos para mantener el mapa actualizado en tiempo real.
@@ -146,6 +146,8 @@ Para mantener un historial limpio y autogenerar bitacoras de cambios, todo el eq
 
 ---
 
+
 ## Contribuciones
+
 
 Las contribuciones son totalmente bienvenidas. Si encuentras un fallo, tienes una idea para mejorar el algoritmo de rutas o deseas integrar mas capas geograficas de Bolivia, sietete libre de abrir un Issue o enviar un Pull Request.
